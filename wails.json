@@ -9,5 +9,12 @@
   "author": {
     "name": "skakizaki",
     "email": "shohachi.kakizaki@gmail.com"
+  },
+  "Info": {
+    "companyName": "kkzk",
+    "productName": "pdf-preview-go",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright 2025 shohachi.kakizaki@gmail.com",
+    "comments": "Built using Wails (https://wails.io)"
   }
 }
