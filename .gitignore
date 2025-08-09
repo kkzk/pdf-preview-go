@@ -21,6 +21,9 @@ coverage.txt
 frontend/dist/
 frontend/build/
 
+# Wails auto-generated JS bindings
+frontend/wailsjs/
+
 # Node.js dependencies
 node_modules/
 npm-debug.log*
@@ -28,13 +31,16 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# Frontend package-lock files (optional - remove if you want to commit them)
+# Frontend package-lock files and checksums
 frontend/package-lock.json
 frontend/yarn.lock
 frontend/pnpm-lock.yaml
+frontend/package.json.md5
+*.md5
 
-# IDE and Editor files
-.vscode/
+# IDE and Editor files (keep project-specific settings)
+.vscode/settings.json
+.vscode/launch.json
 .idea/
 *.swp
 *.swo
