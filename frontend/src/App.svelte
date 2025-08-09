@@ -21,8 +21,12 @@
 
   // UI state
   let leftPanelWidth = 300
-  let rightPanelSplit = 70 // percentage for PDF viewer
+  let rightPanelSplit = 70 // percentage for PDF viewer when log is expanded
   let expandedFolders = new Set() // Track which folders are expanded
+  let isLogExpanded = false // Track log section state
+  
+  // Dynamic panel split based on log state
+  $: effectiveRightPanelSplit = isLogExpanded ? rightPanelSplit : 95
   
   // Left panel section heights (percentages)
   let fileTreeHeight = 40
@@ -232,13 +236,15 @@
     logs.push(`${timestamp}: ${message}`)
     logs = [...logs]
     
-    // Scroll to bottom of logs
-    setTimeout(() => {
-      const logContainer = document.querySelector('.log-container')
-      if (logContainer) {
-        logContainer.scrollTop = logContainer.scrollHeight
-      }
-    }, 100)
+    // Scroll to bottom of logs if expanded
+    if (isLogExpanded) {
+      setTimeout(() => {
+        const logContainer = document.querySelector('.log-container')
+        if (logContainer) {
+          logContainer.scrollTop = logContainer.scrollHeight
+        }
+      }, 100)
+    }
   }
 
   function formatFileSize(bytes) {
@@ -436,7 +442,7 @@
     <!-- Right Panel -->
     <div class="right-panel">
       <!-- PDF Viewer -->
-      <div class="pdf-viewer-section" style="height: {rightPanelSplit}%;">
+      <div class="pdf-viewer-section" style="height: {effectiveRightPanelSplit}%;">
         <div class="section-header">
           <h3>PDFプレビュー</h3>
         </div>
@@ -455,18 +461,33 @@
       </div>
 
       <!-- Resize Handle for Right Panel -->
-      <div class="resize-handle horizontal" on:mousedown={startResizeRightPanel}></div>
+      {#if isLogExpanded}
+        <div class="resize-handle horizontal" on:mousedown={startResizeRightPanel}></div>
+      {/if}
 
       <!-- Log Console -->
-      <div class="log-section" style="height: {100 - rightPanelSplit}%;">
-        <div class="section-header">
+      <div class="log-section" style="height: {100 - effectiveRightPanelSplit}%;">
+        <div class="section-header clickable" 
+             on:click={() => isLogExpanded = !isLogExpanded} 
+             on:keydown={(e) => e.key === 'Enter' && (isLogExpanded = !isLogExpanded)} 
+             tabindex="0" 
+             role="button">
           <h3>ログ</h3>
+          <span class="toggle-icon">{isLogExpanded ? '▼' : '▶'}</span>
         </div>
-        <div class="log-container">
-          {#each logs as log}
-            <div class="log-entry">{log}</div>
-          {/each}
-        </div>
+        {#if isLogExpanded}
+          <div class="log-container">
+            {#each logs as log}
+              <div class="log-entry">{log}</div>
+            {/each}
+          </div>
+        {:else}
+          <div class="log-collapsed">
+            <div class="log-summary">
+              {logs.length > 0 ? `最新: ${logs[logs.length - 1]}` : 'ログなし'}
+            </div>
+          </div>
+        {/if}
       </div>
     </div>
   </div>
@@ -833,6 +854,30 @@
     flex-shrink: 0;
   }
 
+  .section-header.clickable {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    outline: none;
+  }
+
+  .section-header.clickable:hover {
+    background: #e9ecef;
+  }
+
+  .section-header.clickable:focus {
+    background: #e9ecef;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+  }
+
+  .toggle-icon {
+    font-size: 12px;
+    color: #6c757d;
+    transition: transform 0.2s ease;
+  }
+
   .section-header h3 {
     margin: 0;
     font-size: 14px;
@@ -891,16 +936,40 @@
     flex: 1;
     overflow-y: auto;
     padding: 0.5rem;
-    background: #2d3748;
-    color: #e2e8f0;
+    background: #f8f9fa;
+    color: #495057;
     font-family: 'Consolas', 'Monaco', monospace;
     font-size: 11px;
     line-height: 1.4;
+    text-align: left;
   }
 
   .log-entry {
     margin-bottom: 0.25rem;
-    word-break: break-all;
+    word-break: break-word;
+    padding: 0.125rem 0;
+  }
+
+  .log-collapsed {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    padding: 0.25rem 1rem;
+    background: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+    min-height: 0;
+  }
+
+  .log-summary {
+    color: #6c757d;
+    font-size: 11px;
+    font-style: italic;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+    line-height: 1.2;
   }
 
   /* Responsive design */
