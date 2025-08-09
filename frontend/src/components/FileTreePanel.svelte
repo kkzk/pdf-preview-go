@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte'
-  import TreeNode from '../TreeNode.svelte'
+  import TreeNode from './TreeNode.svelte'
 
   export let fileTree = []
   export let selectedFiles = []
