@@ -41,16 +41,23 @@
 </script>
 
 <div class="tree-node" style="padding-left: {depth * 20}px">
-  <div class="node-content" 
-       class:folder={node.isDir} 
-       class:file={!node.isDir}
-       class:clickable={node.isDir ? hasChildren : true}
-       on:click={node.isDir ? (hasChildren ? toggleExpanded : undefined) : toggleSelection}
-       on:keydown={e => e.key === 'Enter' && (node.isDir ? (hasChildren && toggleExpanded()) : toggleSelection())}
-       tabindex={node.isDir ? (hasChildren ? 0 : -1) : 0}
-       role="button">
+  <div
+    class="node-content"
+    class:folder={node.isDir}
+    class:file={!node.isDir}
+    class:clickable={node.isDir ? hasChildren : true}
+    on:click={node.isDir ? (hasChildren ? toggleExpanded : undefined) : toggleSelection}
+    on:keydown={e =>
+      e.key === 'Enter' && (node.isDir ? hasChildren && toggleExpanded() : toggleSelection())}
+    tabindex={node.isDir ? (hasChildren ? 0 : -1) : 0}
+    role="button"
+  >
     {#if node.isDir}
-      <button class="folder-toggle" on:click|stopPropagation={toggleExpanded} disabled={!hasChildren}>
+      <button
+        class="folder-toggle"
+        on:click|stopPropagation={toggleExpanded}
+        disabled={!hasChildren}
+      >
         {getFileIcon(node)}
       </button>
       <span class="node-name folder-name" class:disabled={!hasChildren}>

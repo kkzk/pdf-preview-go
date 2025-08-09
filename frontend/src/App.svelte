@@ -13,7 +13,7 @@
     SetWindowTitle,
     ShowSaveDialog,
   } from '../wailsjs/go/main/App.js'
-  import { EventsOff, EventsOn } from '../wailsjs/runtime/runtime.js'
+  import { EventsOff, EventsOn, Quit } from '../wailsjs/runtime/runtime.js'
   import FileTreePanel from './components/FileTreePanel.svelte'
   import LogPanel from './components/LogPanel.svelte'
   import PdfViewer from './components/PdfViewer.svelte'
@@ -62,6 +62,9 @@
   let isResizingSelectedFiles = false
 
   // Initialize component
+  // Application exit confirmation handler
+  let handleBeforeUnload
+
   onMount(async () => {
     try {
       // Get initial directory from command line argument
@@ -81,6 +84,46 @@
     } catch (error) {
       addLog(`作業ディレクトリ取得エラー: ${error}`)
     }
+
+    // Setup application exit confirmation
+    handleBeforeUnload = async event => {
+      try {
+        const hasUnsaved = await HasUnsavedChanges()
+        if (hasUnsaved && pdfUrl) {
+          event.preventDefault()
+          event.returnValue = '' // Required for Chrome
+
+          // Show confirmation dialog
+          const shouldSave = confirm(
+            '未保存のPDFがあります。保存してからアプリケーションを終了しますか？\n\n「OK」: PDFを保存してから終了\n「キャンセル」: 保存せずに終了\n「×」: 終了をキャンセル'
+          )
+
+          if (shouldSave) {
+            try {
+              await ShowSaveDialog()
+              addLog('PDFファイルを保存しました')
+              // Allow normal exit after saving
+              window.removeEventListener('beforeunload', handleBeforeUnload)
+              Quit()
+            } catch (saveError) {
+              addLog(`保存エラー: ${saveError}`)
+              // Don't quit if save failed
+              return false
+            }
+          } else {
+            // User chose not to save, allow exit
+            window.removeEventListener('beforeunload', handleBeforeUnload)
+            Quit()
+          }
+          return false
+        }
+      } catch (error) {
+        addLog(`終了処理エラー: ${error}`)
+      }
+    }
+
+    // Add beforeunload event listener
+    window.addEventListener('beforeunload', handleBeforeUnload)
 
     // Listen for directory change events from menu
     EventsOn('directory-changed', async newDir => {
@@ -122,6 +165,9 @@
     EventsOff('file-changed')
     EventsOff('conversion:error')
     EventsOff('conversion:progress')
+
+    // Clean up beforeunload event listener
+    window.removeEventListener('beforeunload', handleBeforeUnload)
   })
 
   async function loadFileTree() {

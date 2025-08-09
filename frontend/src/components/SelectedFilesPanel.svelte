@@ -36,12 +36,14 @@
   </div>
   <div class="selected-files">
     {#each selectedFiles as file, index}
-      <div class="selected-file-item" 
-           class:active={currentFile && currentFile.path === file.path}
-           on:click={() => selectFileFromList(file)}
-           on:keydown={e => e.key === 'Enter' && selectFileFromList(file)}
-           tabindex="0"
-           role="button">
+      <div
+        class="selected-file-item"
+        class:active={currentFile && currentFile.path === file.path}
+        on:click={() => selectFileFromList(file)}
+        on:keydown={e => e.key === 'Enter' && selectFileFromList(file)}
+        tabindex="0"
+        role="button"
+      >
         <div class="file-info">
           <span class="file-icon">
             {#if file.name.includes('.xls')}📊{:else if file.name.endsWith('.pdf')}📄{:else}📝{/if}
@@ -49,15 +51,19 @@
           <span class="file-name">{file.name}</span>
         </div>
         <div class="file-controls">
-          <button class="btn-small" on:click|stopPropagation={() => moveFileUp(index)} disabled={index === 0}
-            >↑</button
+          <button
+            class="btn-small"
+            on:click|stopPropagation={() => moveFileUp(index)}
+            disabled={index === 0}>↑</button
           >
           <button
             class="btn-small"
             on:click|stopPropagation={() => moveFileDown(index)}
             disabled={index === selectedFiles.length - 1}>↓</button
           >
-          <button class="btn-small btn-danger" on:click|stopPropagation={() => removeFile(index)}>×</button>
+          <button class="btn-small btn-danger" on:click|stopPropagation={() => removeFile(index)}
+            >×</button
+          >
         </div>
       </div>
     {/each}
