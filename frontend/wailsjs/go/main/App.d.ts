@@ -20,10 +20,6 @@ export function GetFileInfo(arg1:string):Promise<Record<string, any>>;
 
 export function GetInitialDirectory():Promise<string>;
 
-export function GetWatchStatus():Promise<Record<string, any>>;
-
-export function Greet(arg1:string):Promise<string>;
-
 export function HasUnsavedChanges():Promise<boolean>;
 
 export function MarkAsModified():Promise<void>;

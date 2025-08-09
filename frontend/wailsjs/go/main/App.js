@@ -38,14 +38,6 @@ export function GetInitialDirectory() {
   return window['go']['main']['App']['GetInitialDirectory']();
 }
 
-export function GetWatchStatus() {
-  return window['go']['main']['App']['GetWatchStatus']();
-}
-
-export function Greet(arg1) {
-  return window['go']['main']['App']['Greet'](arg1);
-}
-
 export function HasUnsavedChanges() {
   return window['go']['main']['App']['HasUnsavedChanges']();
 }

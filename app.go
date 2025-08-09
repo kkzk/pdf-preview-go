@@ -155,11 +155,6 @@ func (a *App) startHTTPServer() {
 	}
 }
 
-// Greet returns a greeting for the given name
-func (a *App) Greet(name string) string {
-	return fmt.Sprintf("Hello %s, It's show time!", name)
-}
-
 // GetInitialDirectory returns the initial directory set via command line
 func (a *App) GetInitialDirectory() string {
 	return a.initialDir
@@ -335,9 +330,6 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 	var convertedPDFs []string
 	var errors []string
 
-	// Log sheet selections for debugging
-	runtime.LogInfo(a.ctx, fmt.Sprintf("Sheet selections: %+v", sheetSelections))
-
 	// Convert each file to PDF
 	for i, filePath := range filePaths {
 		// Emit progress event
@@ -351,7 +343,6 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 		forceRegeneration := false
 		if sheets, exists := sheetSelections[filePath]; exists && len(sheets) > 0 {
 			forceRegeneration = true
-			runtime.LogInfo(a.ctx, fmt.Sprintf("Force regeneration for %s with sheets: %v", filepath.Base(filePath), sheets))
 		}
 
 		outputPath, err := a.converter.ConvertToPDF(filePath, sheetSelections, forceRegeneration)
@@ -511,9 +502,6 @@ func (a *App) handleFileEvent(event fsnotify.Event) {
 		return
 	}
 
-	// Log all events for debugging
-	runtime.LogDebug(a.ctx, fmt.Sprintf("File event: %s %s", event.Name, event.Op.String()))
-
 	// Check if the changed file is one of our converted files or related to them
 	eventPath := filepath.Clean(event.Name)
 	isWatchedFile := false
@@ -606,27 +594,6 @@ func (a *App) SetAutoUpdateEnabled(enabled bool) {
 // GetAutoUpdateEnabled returns current auto-update status
 func (a *App) GetAutoUpdateEnabled() bool {
 	return a.autoUpdateEnabled
-}
-
-// GetWatchStatus returns current file watching status for debugging
-func (a *App) GetWatchStatus() map[string]interface{} {
-	status := map[string]interface{}{
-		"autoUpdateEnabled": a.autoUpdateEnabled,
-		"watchedDirectory":  a.watchedDir,
-		"watchedFiles":      a.lastConvertedFiles,
-		"fileCount":         len(a.lastConvertedFiles),
-		"pollingActive":     a.pollingTicker != nil,
-	}
-
-	if len(a.fileModTimes) > 0 {
-		modTimes := make(map[string]string)
-		for filePath, modTime := range a.fileModTimes {
-			modTimes[filepath.Base(filePath)] = modTime.Format("2006-01-02 15:04:05")
-		}
-		status["fileModTimes"] = modTimes
-	}
-
-	return status
 }
 
 // autoRegeneratePDF automatically regenerates PDF when files change

@@ -44,9 +44,6 @@ func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets map[string
 	outputFileName := fmt.Sprintf("%x.pdf", hash)
 	outputPath := filepath.Join(c.cacheDir, outputFileName)
 
-	fmt.Printf("Cache key input: %s\n", hashInput)
-	fmt.Printf("Output path: %s\n", outputPath)
-
 	// Create cache directory if it doesn't exist
 	if err := os.MkdirAll(c.cacheDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create cache directory: %v", err)
@@ -62,7 +59,6 @@ func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets map[string
 	if !force {
 		if outputInfo, err := os.Stat(outputPath); err == nil {
 			if srcInfo.ModTime().Equal(outputInfo.ModTime()) {
-				fmt.Printf("Using cached PDF: %s\n", outputPath)
 				return outputPath, nil // File is up to date
 			}
 		}
@@ -101,7 +97,6 @@ func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets map[string
 	// Set the same modification time as source file
 	if err := os.Chtimes(outputPath, srcInfo.ModTime(), srcInfo.ModTime()); err != nil {
 		// Log warning but don't fail
-		fmt.Printf("Warning: could not set modification time: %v\n", err)
 	}
 
 	return outputPath, nil
@@ -109,9 +104,6 @@ func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets map[string
 
 // convertExcelToPDF converts Excel file to PDF using Excel application
 func (c *OfficeConverter) convertExcelToPDF(srcPath, outputPath string, selectedSheets []string) error {
-	fmt.Printf("Converting Excel file: %s\n", srcPath)
-	fmt.Printf("Selected sheets: %v\n", selectedSheets)
-
 	// Create Excel application
 	unknown, err := oleutil.CreateObject("Excel.Application")
 	if err != nil {
@@ -148,15 +140,12 @@ func (c *OfficeConverter) convertExcelToPDF(srcPath, outputPath string, selected
 
 	// Handle sheet selection
 	if len(selectedSheets) > 0 {
-		fmt.Printf("Processing sheet selection for %d sheets\n", len(selectedSheets))
-
 		// Get worksheets collection
 		worksheets := oleutil.MustGetProperty(wb, "Worksheets").ToIDispatch()
 		defer worksheets.Release()
 
 		// First, hide all sheets except the selected ones
 		totalSheets := int(oleutil.MustGetProperty(worksheets, "Count").Val)
-		fmt.Printf("Total sheets in workbook: %d\n", totalSheets)
 
 		// Get all sheet names first
 		var allSheetNames []string
@@ -166,7 +155,6 @@ func (c *OfficeConverter) convertExcelToPDF(srcPath, outputPath string, selected
 			allSheetNames = append(allSheetNames, sheetName)
 			sheet.Release()
 		}
-		fmt.Printf("All sheet names: %v\n", allSheetNames)
 
 		// Hide non-selected sheets
 		for _, sheetName := range allSheetNames {
