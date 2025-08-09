@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
+	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/tealeg/xlsx/v3"
 )
 
@@ -247,11 +248,31 @@ func GetExcelSheetsInfo(filePath string) ([]ExcelSheetInfo, error) {
 	return sheets, nil
 }
 
-// MergePDFs combines multiple PDF files into one
+// MergePDFs combines multiple PDF files into one using pdfcpu library
 func MergePDFs(inputPaths []string, outputPath string) error {
-	// For now, return error as PDF merging requires additional libraries
-	// In production, you would use a library like github.com/pdfcpu/pdfcpu
-	return fmt.Errorf("PDF merging not implemented yet - would need pdfcpu library")
+	if len(inputPaths) == 0 {
+		return fmt.Errorf("no input PDFs provided")
+	}
+
+	// If only one file, just copy it
+	if len(inputPaths) == 1 {
+		return copyFile(inputPaths[0], outputPath)
+	}
+
+	// Validate all input files exist
+	for _, inputPath := range inputPaths {
+		if _, err := os.Stat(inputPath); os.IsNotExist(err) {
+			return fmt.Errorf("input file does not exist: %s", inputPath)
+		}
+	}
+
+	// Use pdfcpu to merge PDFs
+	err := api.MergeCreateFile(inputPaths, outputPath, false, nil)
+	if err != nil {
+		return fmt.Errorf("failed to merge PDFs: %v", err)
+	}
+
+	return nil
 }
 
 // copyFile copies a file from src to dst

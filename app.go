@@ -343,17 +343,34 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 		return pdfURL, nil
 	}
 
-	// For multiple files, we would merge them here
-	// For now, return the first file as placeholder
-	// TODO: Implement PDF merging
-	fileName := filepath.Base(convertedPDFs[0])
-	pdfURL := fmt.Sprintf("http://localhost:%d/pdf/%s", a.httpPort, fileName)
+	// For multiple files, merge them using pdfcpu
+	runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
+		Status:      "running",
+		CurrentFile: "PDFファイルを結合中...",
+		Progress:    90,
+	})
+
+	// Generate merged PDF filename with timestamp
+	timestamp := time.Now().Format("20060102_150405")
+	mergedFileName := fmt.Sprintf("merged_%s.pdf", timestamp)
+
+	// Get cache directory from converter
+	cacheDir := filepath.Dir(convertedPDFs[0]) // All PDFs are in the same cache directory
+	mergedPath := filepath.Join(cacheDir, mergedFileName)
+
+	// Merge PDFs using pdfcpu
+	err := MergePDFs(convertedPDFs, mergedPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to merge PDFs: %v", err)
+	}
+
+	// Convert merged file path to HTTP URL
+	pdfURL := fmt.Sprintf("http://localhost:%d/pdf/%s", a.httpPort, mergedFileName)
 
 	runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
-		Status:       "completed",
-		Progress:     100,
-		OutputPath:   pdfURL,
-		ErrorMessage: "Multiple PDF merging not yet implemented - returning first file",
+		Status:     "completed",
+		Progress:   100,
+		OutputPath: pdfURL,
 	})
 
 	return pdfURL, nil
