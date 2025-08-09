@@ -340,7 +340,9 @@
     <div class="left-panel" style="width: {leftPanelWidth}px;">
       <!-- File Tree -->
       <div class="panel-section file-tree-section" style="height: {fileTreeHeight}%;">
-        <h3>ファイル一覧</h3>
+        <div class="section-header-compact">
+          <h3>ファイル一覧</h3>
+        </div>
         <div class="file-tree">
           {#each fileTree as rootNode}
             <TreeNode 
@@ -359,7 +361,10 @@
 
       <!-- Selected Files List -->
       <div class="panel-section selected-files-section" style="height: {selectedFilesHeight}%;">
-        <h3>選択ファイル ({selectedFiles.length})</h3>
+        <div class="section-header-compact">
+          <h3>選択ファイル</h3>
+          <span class="count-badge">({selectedFiles.length})</span>
+        </div>
         <div class="selected-files">
           {#each selectedFiles as file, index}
             <div class="selected-file-item" class:active={currentFile && currentFile.path === file.path}>
@@ -383,14 +388,16 @@
       <div class="resize-handle horizontal" on:mousedown={startResizeSelectedFiles}></div>
 
       <!-- Excel Sheets -->
-            <!-- Excel Sheets -->
+      <!-- Excel Sheets -->
       <div class="panel-section sheets-section" style="height: {sheetsHeight}%;">
-        <h3>シート選択</h3>
+        <div class="section-header-compact">
+          <h3>シート選択</h3>
+          {#if currentFile}
+            <span class="file-badge">{currentFile.name}</span>
+          {/if}
+        </div>
         <div class="sheets-content">
           {#if currentFile && excelSheets.length > 0}
-            <div class="current-file-info">
-              <strong>{currentFile.name}</strong>
-            </div>
             <div class="sheets-list">
               {#each excelSheets as sheet}
                 <label class="sheet-checkbox" class:disabled={!sheet.visible}>
@@ -535,7 +542,7 @@
   }
 
   .panel-section {
-    padding: 1rem;
+    padding: 0.5rem;
     border-bottom: 1px solid #dee2e6;
     display: flex;
     flex-direction: column;
@@ -544,11 +551,48 @@
   }
 
   .panel-section h3 {
-    margin: 0 0 0.5rem 0;
+    margin: 0 0 0.25rem 0;
     font-size: 14px;
     font-weight: 600;
     color: #495057;
     flex-shrink: 0;
+  }
+
+  .section-header-compact {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+    flex-shrink: 0;
+  }
+
+  .section-header-compact h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #495057;
+  }
+
+  .count-badge {
+    background: #007bff;
+    color: white;
+    font-size: 11px;
+    padding: 0.125rem 0.375rem;
+    border-radius: 10px;
+    font-weight: 500;
+  }
+
+  .file-badge {
+    background: #28a745;
+    color: white;
+    font-size: 10px;
+    padding: 0.125rem 0.375rem;
+    border-radius: 8px;
+    font-weight: 500;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* File tree */
@@ -616,17 +660,6 @@
     flex-direction: column;
   }
 
-  .current-file-info {
-    margin-bottom: 0.5rem;
-    padding: 0.5rem;
-    background: white;
-    border-radius: 4px;
-    border: 1px solid #dee2e6;
-    font-size: 12px;
-    color: #495057;
-    flex-shrink: 0;
-  }
-
   .sheets-list {
     flex: 1;
     overflow-y: auto;
@@ -638,7 +671,7 @@
 
   .convert-section {
     margin-top: auto;
-    padding-top: 0.5rem;
+    padding-top: 0.25rem;
     flex-shrink: 0;
   }
 
