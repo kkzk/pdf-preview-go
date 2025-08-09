@@ -23,6 +23,23 @@
 - **JSバインディング生成**: `wails generate module`（GoメソッドをJS化）
 - **テスト時のアプリケーション起動**: `.\build\bin\pdf-preview-go.exe .\test`
 
+### デバッグ実行
+VS Codeでのデバッグが設定済みです：
+
+#### デバッグ設定（`.vscode/launch.json`）
+1. **Debug PDF Preview Go**: `./test`ディレクトリで起動
+2. **Debug PDF Preview Go (Custom Dir)**: カスタムディレクトリを入力して起動
+3. **Debug Wails Dev**: Wails開発モードでデバッグ
+
+#### デバッグ実行方法
+1. VS Codeで `F5` を押すか、「実行とデバッグ」パネルから選択
+2. ブレークポイントを設定してステップ実行
+3. 変数の値やスタックトレースを確認
+
+#### ログ出力
+- アプリケーション起動時に詳細ログが出力されます
+- コマンドライン引数、ディレクトリパス、各種初期化処理の状況を確認可能
+
 ### PowerShell環境での注意点
 - **コマンド実行**: PowerShellでは `cd` の代わりに `Set-Location` を使用
 - **パス指定**: PowerShellでは引用符で囲む（例：`Set-Location "c:\dev\kkzk\pdf-preview-go"`）
