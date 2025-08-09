@@ -69,6 +69,9 @@ jobs:
     if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     needs: build-windows
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     
     steps:
     - name: Checkout
@@ -117,3 +120,5 @@ jobs:
         draft: false
         prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
