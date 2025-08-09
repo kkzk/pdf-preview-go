@@ -213,7 +213,11 @@
     
     try {
       const filePaths = selectedFiles.map(f => f.path)
-      const result = await ConvertToPDF(filePaths, sheetSelections)
+      // Ensure sheetSelections has the correct type structure
+      const validSheetSelections = Object.keys(sheetSelections).length > 0 
+        ? sheetSelections 
+        : Object.fromEntries(filePaths.map(path => [path, []]))
+      const result = await ConvertToPDF(filePaths, validSheetSelections)
       pdfUrl = result
       addLog(`PDF変換が完了しました: ${result}`)
     } catch (error) {
@@ -359,7 +363,7 @@
         <div class="selected-files">
           {#each selectedFiles as file, index}
             <div class="selected-file-item" class:active={currentFile && currentFile.path === file.path}>
-              <div class="file-info" on:click={() => selectFileFromList(file)}>
+              <div class="file-info" on:click={() => selectFileFromList(file)} on:keydown={(e) => e.key === 'Enter' && selectFileFromList(file)} tabindex="0" role="button">
                 <span class="file-icon">
                   {#if file.name.includes('.xls')}📊{:else if file.name.endsWith('.pdf')}📄{:else}📝{/if}
                 </span>
