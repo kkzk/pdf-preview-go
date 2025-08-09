@@ -1,12 +1,8 @@
 <script>
-  import {Greet, OpenDirectoryDialog, GetDirectoryContents, GetDirectoryTree, GetExcelSheets, ConvertToPDF, GetFileInfo, GetInitialDirectory, SetWindowTitle} from '../wailsjs/go/main/App.js'
+  import {OpenDirectoryDialog, GetDirectoryContents, GetDirectoryTree, GetExcelSheets, ConvertToPDF, GetFileInfo, GetInitialDirectory, SetWindowTitle} from '../wailsjs/go/main/App.js'
   import {onMount, onDestroy} from 'svelte'
   import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime.js'
   import TreeNode from './TreeNode.svelte'
-
-  // Development test variables
-  let resultText = "Please enter your name below 👇"
-  let name
 
   // Main application state
   let rootDirectory = ''
@@ -69,10 +65,6 @@
     // Clean up event listeners
     EventsOff('directory-changed')
   })
-
-  function greet() {
-    Greet(name).then(result => resultText = result)
-  }
 
   async function loadFileTree() {
     try {
@@ -328,18 +320,6 @@
 </script>
 
 <main on:mousemove={handleMouseMove} on:mouseup={handleMouseUp}>
-  <!-- Development Section -->
-  <details>
-    <summary>Development Test</summary>
-    <div class="dev-section">
-      <div class="result">{resultText}</div>
-      <div class="input-box">
-        <input bind:value={name} class="input" placeholder="Enter your name" />
-        <button class="btn" on:click={greet}>Greet</button>
-      </div>
-    </div>
-  </details>
-
   <!-- Main Application Layout -->
   <div class="app-container">
     <!-- Left Panel -->
@@ -502,52 +482,25 @@
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-size: 14px;
+    height: 100vh;
+    overflow: hidden;
   }
 
-  /* Development section */
-  .dev-section {
-    padding: 1rem;
-    background: #f8f9fa;
-    border-radius: 4px;
-  }
-
-  .result {
-    margin: 0.5rem 0;
-    font-weight: 500;
-  }
-
-  .input-box {
+  main {
+    height: 100vh;
     display: flex;
-    gap: 0.5rem;
-    align-items: center;
-  }
-
-  .input {
-    padding: 0.5rem;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    outline: none;
-  }
-
-  .btn {
-    padding: 0.5rem 1rem;
-    border: 1px solid #ddd;
-    background: white;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-
-  .btn:hover {
-    background: #f8f9fa;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   /* Main application layout */
   .app-container {
     display: flex;
-    height: calc(100vh - 100px);
+    flex: 1;
     border: 1px solid #ddd;
     border-radius: 8px;
     overflow: hidden;
+    margin: 0.25rem;
   }
 
   /* Left panel */
