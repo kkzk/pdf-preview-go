@@ -1,0 +1,119 @@
+name: CI - Build and Test (Windows)
+
+on:
+  pull_request:
+    branches: [ master, main ]
+  push:
+    branches: [ master, main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+env:
+  WAILS_VERSION: v2.10.2
+
+jobs:
+  # Go言語のコード品質チェック
+  go-quality:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+        cache: true
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Run go fmt
+      shell: bash
+      run: |
+        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+          echo "以下のファイルがgo fmtでフォーマットされていません:"
+          gofmt -s -l .
+          exit 1
+        fi
+
+    - name: Run go vet
+      run: go vet ./...
+
+    - name: Run go mod tidy check
+      shell: bash
+      run: |
+        go mod tidy
+        if ! git diff --quiet go.mod go.sum; then
+          echo "go mod tidyが必要です"
+          git diff go.mod go.sum
+          exit 1
+        fi
+
+  # フロントエンドのコード品質チェック  
+  frontend-quality:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package.json
+
+    - name: Install dependencies
+      working-directory: frontend
+      run: npm install
+
+    - name: Build frontend
+      working-directory: frontend
+      run: npm run build
+
+  # Windowsビルドテスト
+  build-test:
+    runs-on: windows-latest
+    needs: [go-quality, frontend-quality]
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+        cache: true
+
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package.json
+
+    - name: Install Wails
+      run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+    - name: Install frontend dependencies
+      working-directory: frontend
+      run: npm install
+
+    # Windows開発用ビルドテスト（NSISインストーラーは作成しない）
+    - name: Test Build (Windows Dev Mode)
+      run: wails build -platform windows/amd64 -devtools
+
+    # ビルドされたファイルが存在することを確認
+    - name: Verify build artifacts
+      shell: bash
+      run: |
+        echo "Build directory contents:"
+        find build -type f 2>/dev/null || echo "Build directory not found"
+        
+        # exe ファイルが生成されていることを確認
+        find build -name "*.exe" | head -1 | grep -q "." || (echo "No exe file found" && exit 1)
+        
+        echo "✅ Windows用ビルドアーティファクトが正常に生成されました"

@@ -1,0 +1,119 @@
+name: Build and Release (Windows)
+
+on:
+  push:
+    branches: [ master, main ]
+    tags: [ 'v*' ]
+
+env:
+  WAILS_VERSION: v2.10.2
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+        cache: true
+
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package.json
+
+    - name: Install Wails
+      run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+    - name: Install frontend dependencies
+      working-directory: frontend
+      run: npm install
+
+    - name: Install NSIS
+      run: choco install nsis -y
+        
+    - name: Build Windows Application with Installer
+      run: wails build -platform windows/amd64 -nsis
+
+    - name: Prepare artifacts
+      shell: bash
+      run: |
+        mkdir -p dist
+        
+        echo "Contents of build directory:"
+        find build -type f 2>/dev/null || echo "Build directory not found"
+        
+        # Windows用の全ての.exeファイルをコピー
+        find build -name "*.exe" -exec cp {} dist/ \; 2>/dev/null || true
+        
+        echo "Final dist directory contents:"
+        ls -la dist/ 2>/dev/null || echo "No files in dist directory"
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: pdf-preview-go-windows
+        path: dist/*
+        retention-days: 7
+
+  release:
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    needs: build-windows
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Download Windows artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: pdf-preview-go-windows
+        path: release-assets
+
+    - name: Generate release tag
+      id: tag
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        else
+          echo "tag=v$(date +'%Y.%m.%d-%H%M%S')" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.tag.outputs.tag }}
+        name: PDF Preview Go ${{ steps.tag.outputs.tag }} (Windows)
+        body: |
+          ## PDF Preview Go ${{ steps.tag.outputs.tag }} - Windows版
+          
+          Windows用自動ビルドリリースです。
+          
+          ### インストール方法
+          1. `pdf-preview-go-*-installer.exe` をダウンロード（推奨）
+          2. インストーラーを実行してセットアップ
+          
+          ### 単体実行の場合
+          1. `pdf-preview-go.exe` をダウンロード
+          2. 任意のフォルダに保存して直接実行
+          
+          ### システム要件
+          - Windows 10 64-bit 以降
+          - .NET Framework（通常は既にインストール済み）
+          
+          ### 最新の変更内容
+          コミット: ${{ github.sha }}
+        files: release-assets/*
+        draft: false
+        prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        generate_release_notes: true
