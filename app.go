@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +18,8 @@ type App struct {
 	ctx        context.Context
 	converter  *OfficeConverter
 	initialDir string // Initial directory to open
+	httpServer *http.Server
+	httpPort   int
 }
 
 // FileInfo represents file information
@@ -48,29 +52,79 @@ type ConversionStatus struct {
 func NewApp(initialDir string) *App {
 	// Create cache directory
 	cacheDir := filepath.Join(os.TempDir(), "pdf-preview-go-cache")
+	os.MkdirAll(cacheDir, 0755)
 
-	return &App{
+	app := &App{
 		converter:  NewOfficeConverter(cacheDir),
 		initialDir: initialDir,
+		httpPort:   0, // Will be set when server starts
 	}
+
+	return app
 }
 
-// startup is called when the app starts. The context is saved
-// so we can call the runtime methods
-func (a *App) startup(ctx context.Context) {
+// Startup is called when the app starts. The context passed
+// is the app's context. Additional initialization can be done here.
+func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 
-	// Set initial window title
-	if a.initialDir != "" {
-		a.SetWindowTitle(a.initialDir)
-	}
+	// Start HTTP server for serving PDF files
+	a.startHTTPServer()
+}
 
-	// Clean up old cache files (older than 2 days)
-	go func() {
-		if err := a.converter.CleanupCache(48 * time.Hour); err != nil {
-			fmt.Printf("Warning: cache cleanup failed: %v\n", err)
+// Shutdown is called when the app is closing
+func (a *App) Shutdown(ctx context.Context) {
+	if a.httpServer != nil {
+		a.httpServer.Close()
+	}
+	// Note: OfficeConverter doesn't have a Close method
+	// COM objects are automatically cleaned up
+}
+
+// startHTTPServer starts a local HTTP server to serve PDF files
+func (a *App) startHTTPServer() {
+	// Find available port
+	for port := 8080; port < 8090; port++ {
+		mux := http.NewServeMux()
+
+		// Serve PDF files from cache directory
+		cacheDir := filepath.Join(os.TempDir(), "pdf-preview-go-cache")
+		mux.Handle("/pdf/", http.StripPrefix("/pdf/", http.FileServer(http.Dir(cacheDir))))
+
+		// Add CORS headers for WebView compatibility
+		corsHandler := func(h http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "*")
+				if r.Method == "OPTIONS" {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				h.ServeHTTP(w, r)
+			})
 		}
-	}()
+
+		a.httpServer = &http.Server{
+			Addr:    ":" + strconv.Itoa(port),
+			Handler: corsHandler(mux),
+		}
+
+		go func() {
+			if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				// Port might be in use, try next one
+			}
+		}()
+
+		// Test if server started successfully
+		time.Sleep(100 * time.Millisecond)
+		resp, err := http.Get("http://localhost:" + strconv.Itoa(port) + "/pdf/")
+		if err == nil {
+			resp.Body.Close()
+			a.httpPort = port
+			return
+		}
+	}
 }
 
 // Greet returns a greeting for the given name
@@ -277,25 +331,32 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 
 	// If only one file, return it directly
 	if len(convertedPDFs) == 1 {
+		// Convert file path to HTTP URL
+		fileName := filepath.Base(convertedPDFs[0])
+		pdfURL := fmt.Sprintf("http://localhost:%d/pdf/%s", a.httpPort, fileName)
+
 		runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
 			Status:     "completed",
 			Progress:   100,
-			OutputPath: convertedPDFs[0],
+			OutputPath: pdfURL,
 		})
-		return convertedPDFs[0], nil
+		return pdfURL, nil
 	}
 
 	// For multiple files, we would merge them here
 	// For now, return the first file as placeholder
 	// TODO: Implement PDF merging
+	fileName := filepath.Base(convertedPDFs[0])
+	pdfURL := fmt.Sprintf("http://localhost:%d/pdf/%s", a.httpPort, fileName)
+
 	runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
 		Status:       "completed",
 		Progress:     100,
-		OutputPath:   convertedPDFs[0],
+		OutputPath:   pdfURL,
 		ErrorMessage: "Multiple PDF merging not yet implemented - returning first file",
 	})
 
-	return convertedPDFs[0], nil
+	return pdfURL, nil
 }
 
 // GetFileInfo returns basic file information
