@@ -18,6 +18,10 @@ export function GetFileInfo(arg1) {
   return window['go']['main']['App']['GetFileInfo'](arg1);
 }
 
+export function GetInitialDirectory() {
+  return window['go']['main']['App']['GetInitialDirectory']();
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }

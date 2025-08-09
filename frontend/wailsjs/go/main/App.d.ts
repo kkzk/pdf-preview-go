@@ -10,6 +10,8 @@ export function GetExcelSheets(arg1:string):Promise<Array<main.ExcelSheetInfo>>;
 
 export function GetFileInfo(arg1:string):Promise<Record<string, any>>;
 
+export function GetInitialDirectory():Promise<string>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function OpenDirectoryDialog():Promise<string>;

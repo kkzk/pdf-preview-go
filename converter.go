@@ -1,0 +1,315 @@
+package main
+
+import (
+	"crypto/md5"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/go-ole/go-ole"
+	"github.com/go-ole/go-ole/oleutil"
+	"github.com/tealeg/xlsx/v3"
+)
+
+// OfficeConverter handles conversion of Office documents to PDF
+type OfficeConverter struct {
+	cacheDir string
+}
+
+// NewOfficeConverter creates a new converter instance
+func NewOfficeConverter(cacheDir string) *OfficeConverter {
+	return &OfficeConverter{
+		cacheDir: cacheDir,
+	}
+}
+
+// ConvertResult contains the result of a conversion operation
+type ConvertResult struct {
+	OutputPath string
+	Error      error
+}
+
+// ConvertToPDF converts an Office file to PDF using Office applications
+func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets map[string][]string, force bool) (string, error) {
+	// Generate cache file name based on file hash
+	hash := md5.Sum([]byte(srcPath))
+	outputFileName := fmt.Sprintf("%x.pdf", hash)
+	outputPath := filepath.Join(c.cacheDir, outputFileName)
+
+	// Create cache directory if it doesn't exist
+	if err := os.MkdirAll(c.cacheDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create cache directory: %v", err)
+	}
+
+	// Check if source file exists
+	srcInfo, err := os.Stat(srcPath)
+	if err != nil {
+		return "", fmt.Errorf("source file not found: %v", err)
+	}
+
+	// Check if output already exists and is up to date (unless force is true)
+	if !force {
+		if outputInfo, err := os.Stat(outputPath); err == nil {
+			if srcInfo.ModTime().Equal(outputInfo.ModTime()) {
+				return outputPath, nil // File is up to date
+			}
+		}
+	}
+
+	ext := strings.ToLower(filepath.Ext(srcPath))
+
+	// Handle PDF files (just copy)
+	if ext == ".pdf" {
+		if err := copyFile(srcPath, outputPath); err != nil {
+			return "", err
+		}
+		return outputPath, nil
+	}
+
+	// Initialize COM
+	if err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED); err != nil {
+		return "", fmt.Errorf("failed to initialize COM: %v", err)
+	}
+	defer ole.CoUninitialize()
+
+	// Convert based on file type
+	switch ext {
+	case ".xlsx", ".xls", ".xlsm":
+		err = c.convertExcelToPDF(srcPath, outputPath, selectedSheets[srcPath])
+	case ".docx", ".doc":
+		err = c.convertWordToPDF(srcPath, outputPath)
+	default:
+		return "", fmt.Errorf("unsupported file type: %s", ext)
+	}
+
+	if err != nil {
+		return "", err
+	}
+
+	// Set the same modification time as source file
+	if err := os.Chtimes(outputPath, srcInfo.ModTime(), srcInfo.ModTime()); err != nil {
+		// Log warning but don't fail
+		fmt.Printf("Warning: could not set modification time: %v\n", err)
+	}
+
+	return outputPath, nil
+}
+
+// convertExcelToPDF converts Excel file to PDF using Excel application
+func (c *OfficeConverter) convertExcelToPDF(srcPath, outputPath string, selectedSheets []string) error {
+	// Create Excel application
+	unknown, err := oleutil.CreateObject("Excel.Application")
+	if err != nil {
+		return fmt.Errorf("failed to create Excel application: %v", err)
+	}
+	defer unknown.Release()
+
+	excel, err := unknown.QueryInterface(ole.IID_IDispatch)
+	if err != nil {
+		return fmt.Errorf("failed to get Excel IDispatch: %v", err)
+	}
+	defer excel.Release()
+
+	// Set properties
+	oleutil.PutProperty(excel, "DisplayAlerts", false)
+	oleutil.PutProperty(excel, "Visible", false)
+
+	// Get workbooks collection
+	workbooks := oleutil.MustGetProperty(excel, "Workbooks").ToIDispatch()
+	defer workbooks.Release()
+
+	// Open workbook
+	workbook, err := oleutil.CallMethod(workbooks, "Open", srcPath, false, true)
+	if err != nil {
+		return fmt.Errorf("failed to open Excel file: %v", err)
+	}
+	defer func() {
+		oleutil.PutProperty(workbook.ToIDispatch(), "Saved", true)
+		oleutil.CallMethod(workbook.ToIDispatch(), "Close")
+		workbook.Clear()
+	}()
+
+	wb := workbook.ToIDispatch()
+
+	// Handle sheet selection
+	if len(selectedSheets) > 0 {
+		// Get worksheets collection
+		worksheets := oleutil.MustGetProperty(wb, "Worksheets").ToIDispatch()
+		defer worksheets.Release()
+
+		firstSheet := true
+		for _, sheetName := range selectedSheets {
+			// Get worksheet by name
+			sheet, err := oleutil.GetProperty(worksheets, "Item", sheetName)
+			if err != nil {
+				fmt.Printf("Warning: could not find sheet '%s': %v\n", sheetName, err)
+				continue
+			}
+
+			sheetDispatch := sheet.ToIDispatch()
+			// Check if sheet is visible
+			visible := oleutil.MustGetProperty(sheetDispatch, "Visible").Value()
+			if visible != nil && visible.(int32) != 0 {
+				// Select sheet (first sheet replaces selection, others add to it)
+				_, err = oleutil.CallMethod(sheetDispatch, "Select", firstSheet)
+				if err != nil {
+					fmt.Printf("Warning: could not select sheet '%s': %v\n", sheetName, err)
+				}
+				firstSheet = false
+			}
+			sheetDispatch.Release()
+			sheet.Clear()
+		}
+
+		// Export selected sheets
+		activeSheet := oleutil.MustGetProperty(wb, "ActiveSheet").ToIDispatch()
+		defer activeSheet.Release()
+
+		_, err = oleutil.CallMethod(activeSheet, "ExportAsFixedFormat", 0, outputPath, 0)
+		if err != nil {
+			return fmt.Errorf("failed to export Excel to PDF: %v", err)
+		}
+	} else {
+		// Export entire workbook
+		_, err = oleutil.CallMethod(wb, "ExportAsFixedFormat", 0, outputPath, 0)
+		if err != nil {
+			return fmt.Errorf("failed to export Excel to PDF: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// convertWordToPDF converts Word document to PDF using Word application
+func (c *OfficeConverter) convertWordToPDF(srcPath, outputPath string) error {
+	// Create Word application
+	unknown, err := oleutil.CreateObject("Word.Application")
+	if err != nil {
+		return fmt.Errorf("failed to create Word application: %v", err)
+	}
+	defer unknown.Release()
+
+	word, err := unknown.QueryInterface(ole.IID_IDispatch)
+	if err != nil {
+		return fmt.Errorf("failed to get Word IDispatch: %v", err)
+	}
+	defer word.Release()
+
+	// Set properties
+	oleutil.PutProperty(word, "DisplayAlerts", false)
+	oleutil.PutProperty(word, "Visible", false)
+
+	// Get documents collection
+	documents := oleutil.MustGetProperty(word, "Documents").ToIDispatch()
+	defer documents.Release()
+
+	// Open document
+	document, err := oleutil.CallMethod(documents, "Open", srcPath, false, true, false, "")
+	if err != nil {
+		return fmt.Errorf("failed to open Word document: %v", err)
+	}
+	defer func() {
+		doc := document.ToIDispatch()
+		oleutil.PutProperty(doc, "Saved", true)
+		oleutil.CallMethod(doc, "Close")
+		document.Clear()
+	}()
+
+	// Export as PDF
+	doc := document.ToIDispatch()
+	_, err = oleutil.CallMethod(doc, "ExportAsFixedFormat", outputPath, 17) // 17 = wdExportFormatPDF
+	if err != nil {
+		return fmt.Errorf("failed to export Word to PDF: %v", err)
+	}
+
+	return nil
+}
+
+// GetExcelSheetsInfo returns information about sheets in an Excel file
+func GetExcelSheetsInfo(filePath string) ([]ExcelSheetInfo, error) {
+	file, err := xlsx.OpenFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open Excel file: %v", err)
+	}
+
+	var sheets []ExcelSheetInfo
+	for i, sheet := range file.Sheets {
+		sheets = append(sheets, ExcelSheetInfo{
+			Name:    sheet.Name,
+			Visible: !sheet.Hidden, // xlsx library uses Hidden property
+			Index:   i,
+		})
+	}
+
+	return sheets, nil
+}
+
+// MergePDFs combines multiple PDF files into one
+func MergePDFs(inputPaths []string, outputPath string) error {
+	// For now, return error as PDF merging requires additional libraries
+	// In production, you would use a library like github.com/pdfcpu/pdfcpu
+	return fmt.Errorf("PDF merging not implemented yet - would need pdfcpu library")
+}
+
+// copyFile copies a file from src to dst
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, sourceFile)
+	if err != nil {
+		return err
+	}
+
+	// Copy file info
+	sourceInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	return os.Chmod(dst, sourceInfo.Mode())
+}
+
+// CleanupCache removes old cache files (older than specified duration)
+func (c *OfficeConverter) CleanupCache(maxAge time.Duration) error {
+	entries, err := os.ReadDir(c.cacheDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // Cache directory doesn't exist yet
+		}
+		return err
+	}
+
+	cutoff := time.Now().Add(-maxAge)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		if info.ModTime().Before(cutoff) {
+			filePath := filepath.Join(c.cacheDir, entry.Name())
+			if err := os.Remove(filePath); err != nil {
+				fmt.Printf("Warning: could not remove cache file %s: %v\n", filePath, err)
+			}
+		}
+	}
+
+	return nil
+}

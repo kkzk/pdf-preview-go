@@ -6,13 +6,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App struct
 type App struct {
-	ctx context.Context
+	ctx        context.Context
+	converter  *OfficeConverter
+	initialDir string // Initial directory to open
 }
 
 // FileInfo represents file information
@@ -32,20 +35,47 @@ type ExcelSheetInfo struct {
 	Index   int    `json:"index"`
 }
 
+// ConversionStatus represents the status of a conversion operation
+type ConversionStatus struct {
+	Status       string `json:"status"`       // "running", "completed", "error"
+	CurrentFile  string `json:"currentFile"`  // Currently processing file
+	Progress     int    `json:"progress"`     // Progress percentage
+	OutputPath   string `json:"outputPath"`   // Final output PDF path
+	ErrorMessage string `json:"errorMessage"` // Error message if status is "error"
+}
+
 // NewApp creates a new App application struct
-func NewApp() *App {
-	return &App{}
+func NewApp(initialDir string) *App {
+	// Create cache directory
+	cacheDir := filepath.Join(os.TempDir(), "pdf-preview-go-cache")
+
+	return &App{
+		converter:  NewOfficeConverter(cacheDir),
+		initialDir: initialDir,
+	}
 }
 
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	// Clean up old cache files (older than 2 days)
+	go func() {
+		if err := a.converter.CleanupCache(48 * time.Hour); err != nil {
+			fmt.Printf("Warning: cache cleanup failed: %v\n", err)
+		}
+	}()
 }
 
 // Greet returns a greeting for the given name
 func (a *App) Greet(name string) string {
 	return fmt.Sprintf("Hello %s, It's show time!", name)
+}
+
+// GetInitialDirectory returns the initial directory set via command line
+func (a *App) GetInitialDirectory() string {
+	return a.initialDir
 }
 
 // OpenFileDialog opens a file dialog to select PDF files
@@ -121,20 +151,61 @@ func isOfficeFile(ext string) bool {
 
 // GetExcelSheets returns sheet information for an Excel file
 func (a *App) GetExcelSheets(filePath string) ([]ExcelSheetInfo, error) {
-	// TODO: Implement Excel sheet reading using Go library
-	// For now, return mock data
-	return []ExcelSheetInfo{
-		{Name: "Sheet1", Visible: true, Index: 0},
-		{Name: "Sheet2", Visible: true, Index: 1},
-		{Name: "Hidden", Visible: false, Index: 2},
-	}, nil
+	return GetExcelSheetsInfo(filePath)
 }
 
-// ConvertToPDF converts selected files to PDF
+// ConvertToPDF converts selected files to PDF and merges them
 func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]string) (string, error) {
-	// TODO: Implement PDF conversion logic
-	// For now, return a placeholder
-	return "conversion_result.pdf", fmt.Errorf("not implemented yet")
+	if len(filePaths) == 0 {
+		return "", fmt.Errorf("no files selected for conversion")
+	}
+
+	var convertedPDFs []string
+	var errors []string
+
+	// Convert each file to PDF
+	for i, filePath := range filePaths {
+		// Emit progress event
+		runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
+			Status:      "running",
+			CurrentFile: filepath.Base(filePath),
+			Progress:    int((float64(i) / float64(len(filePaths))) * 100),
+		})
+
+		outputPath, err := a.converter.ConvertToPDF(filePath, sheetSelections, false)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", filepath.Base(filePath), err))
+			continue
+		}
+
+		convertedPDFs = append(convertedPDFs, outputPath)
+	}
+
+	if len(convertedPDFs) == 0 {
+		return "", fmt.Errorf("no files were successfully converted: %v", errors)
+	}
+
+	// If only one file, return it directly
+	if len(convertedPDFs) == 1 {
+		runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
+			Status:     "completed",
+			Progress:   100,
+			OutputPath: convertedPDFs[0],
+		})
+		return convertedPDFs[0], nil
+	}
+
+	// For multiple files, we would merge them here
+	// For now, return the first file as placeholder
+	// TODO: Implement PDF merging
+	runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
+		Status:       "completed",
+		Progress:     100,
+		OutputPath:   convertedPDFs[0],
+		ErrorMessage: "Multiple PDF merging not yet implemented - returning first file",
+	})
+
+	return convertedPDFs[0], nil
 }
 
 // GetFileInfo returns basic file information

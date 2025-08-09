@@ -1,5 +1,6 @@
 <script>
-  import {Greet, OpenDirectoryDialog, GetDirectoryContents, GetExcelSheets, ConvertToPDF, GetFileInfo} from '../wailsjs/go/main/App.js'
+  import {Greet, OpenDirectoryDialog, GetDirectoryContents, GetExcelSheets, ConvertToPDF, GetFileInfo, GetInitialDirectory} from '../wailsjs/go/main/App.js'
+  import {onMount} from 'svelte'
 
   // Development test variables
   let resultText = "Please enter your name below 👇"
@@ -19,6 +20,21 @@
   // UI state
   let leftPanelWidth = 300
   let rightPanelSplit = 70 // percentage for PDF viewer
+
+  // Initialize component
+  onMount(async () => {
+    try {
+      // Get initial directory from command line argument
+      const initialDir = await GetInitialDirectory()
+      if (initialDir) {
+        rootDirectory = initialDir
+        await loadFileTree()
+        addLog(`初期ディレクトリを設定しました: ${initialDir}`)
+      }
+    } catch (error) {
+      addLog(`初期ディレクトリ取得エラー: ${error}`)
+    }
+  })
 
   function greet() {
     Greet(name).then(result => resultText = result)
