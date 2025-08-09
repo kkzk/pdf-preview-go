@@ -1,29 +1,29 @@
 <script>
   import { createEventDispatcher } from 'svelte'
-  
+
   export let node
   export let selectedFiles = []
   export let expandedFolders = new Set()
   export let depth = 0
-  
+
   const dispatch = createEventDispatcher()
-  
+
   $: isSelected = selectedFiles.some(f => f.path === node.path)
   $: isExpanded = expandedFolders.has(node.path)
   $: hasChildren = node.children && node.children.length > 0
-  
+
   function toggleExpanded() {
     if (node.isDir && hasChildren) {
       dispatch('toggle-folder', node.path)
     }
   }
-  
+
   function toggleSelection() {
     if (!node.isDir) {
       dispatch('toggle-selection', node)
     }
   }
-  
+
   function getFileIcon(node) {
     if (node.isDir) {
       return isExpanded ? '📂' : '📁'
@@ -32,7 +32,7 @@
     if (node.name.includes('.xls')) return '📊'
     return '📝'
   }
-  
+
   function formatFileSize(bytes) {
     if (bytes < 1024) return bytes + ' B'
     if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB'
@@ -43,37 +43,38 @@
 <div class="tree-node" style="padding-left: {depth * 20}px">
   <div class="node-content" class:folder={node.isDir} class:file={!node.isDir}>
     {#if node.isDir}
-      <button 
-        class="folder-toggle" 
-        on:click={toggleExpanded}
-        disabled={!hasChildren}
-      >
+      <button class="folder-toggle" on:click={toggleExpanded} disabled={!hasChildren}>
         {getFileIcon(node)}
       </button>
-      <span class="node-name">{node.name}</span>
+      <span
+        class="node-name folder-name"
+        class:disabled={!hasChildren}
+        on:click={hasChildren ? toggleExpanded : undefined}
+        on:keydown={e => e.key === 'Enter' && hasChildren && toggleExpanded()}
+        tabindex={hasChildren ? 0 : -1}
+        role="button"
+      >
+        {node.name}
+      </span>
       {#if hasChildren}
         <span class="child-count">({node.children.length})</span>
       {/if}
     {:else}
       <label class="file-label">
-        <input 
-          type="checkbox" 
-          checked={isSelected}
-          on:change={toggleSelection}
-        />
+        <input type="checkbox" checked={isSelected} on:change={toggleSelection} />
         <span class="file-icon">{getFileIcon(node)}</span>
         <span class="node-name">{node.name}</span>
         <span class="file-size">{formatFileSize(node.size)}</span>
       </label>
     {/if}
   </div>
-  
+
   {#if node.isDir && isExpanded && hasChildren}
     <div class="children">
       {#each node.children as child}
-        <svelte:self 
-          node={child} 
-          {selectedFiles} 
+        <svelte:self
+          node={child}
+          {selectedFiles}
           {expandedFolders}
           depth={depth + 1}
           on:toggle-folder
@@ -88,7 +89,7 @@
   .tree-node {
     user-select: none;
   }
-  
+
   .node-content {
     display: flex;
     align-items: center;
@@ -96,11 +97,11 @@
     gap: 0.5rem;
     min-height: 32px;
   }
-  
+
   .node-content:hover {
     background: #f8f9fa;
   }
-  
+
   .folder-toggle {
     background: none;
     border: none;
@@ -114,16 +115,16 @@
     justify-content: flex-start;
     border-radius: 4px;
   }
-  
+
   .folder-toggle:hover:not(:disabled) {
     background: #e9ecef;
   }
-  
+
   .folder-toggle:disabled {
     opacity: 0.5;
     cursor: default;
   }
-  
+
   .file-label {
     display: flex;
     align-items: center;
@@ -131,14 +132,14 @@
     cursor: pointer;
     flex: 1;
   }
-  
+
   .file-icon {
     font-size: 16px;
     width: 20px;
     display: flex;
     justify-content: flex-start;
   }
-  
+
   .node-name {
     flex: 1;
     font-size: 13px;
@@ -146,12 +147,38 @@
     word-break: break-all;
     text-align: left;
   }
-  
+
   .folder .node-name {
     font-weight: 500;
     color: #343a40;
   }
-  
+
+  .folder-name {
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.2s ease;
+    outline: none;
+  }
+
+  .folder-name:hover {
+    color: #007bff;
+  }
+
+  .folder-name:focus {
+    color: #0056b3;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+    border-radius: 2px;
+  }
+
+  .folder-name.disabled {
+    cursor: default;
+    color: #6c757d;
+  }
+
+  .folder-name.disabled:hover {
+    color: #6c757d;
+  }
+
   .child-count {
     font-size: 11px;
     color: #6c757d;
@@ -159,19 +186,19 @@
     padding: 0.1rem 0.3rem;
     border-radius: 10px;
   }
-  
+
   .file-size {
     font-size: 11px;
     color: #6c757d;
     min-width: 60px;
   }
-  
+
   .children {
     border-left: 1px dotted #dee2e6;
     margin-left: 12px;
   }
-  
-  input[type="checkbox"] {
+
+  input[type='checkbox'] {
     accent-color: #007bff;
     width: 14px;
     height: 14px;
