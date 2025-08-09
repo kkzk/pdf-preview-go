@@ -1,7 +1,16 @@
 <script>
-  import {OpenDirectoryDialog, GetDirectoryContents, GetDirectoryTree, GetExcelSheets, ConvertToPDF, GetFileInfo, GetInitialDirectory, SetWindowTitle, SetAutoUpdateEnabled, GetAutoUpdateEnabled} from '../wailsjs/go/main/App.js'
-  import {onMount, onDestroy} from 'svelte'
-  import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime.js'
+  import { onDestroy, onMount } from 'svelte'
+  import {
+    ConvertToPDF,
+    GetAutoUpdateEnabled,
+    GetDirectoryContents,
+    GetDirectoryTree,
+    GetExcelSheets,
+    GetInitialDirectory,
+    SetAutoUpdateEnabled,
+    SetWindowTitle,
+  } from '../wailsjs/go/main/App.js'
+  import { EventsOff, EventsOn } from '../wailsjs/runtime/runtime.js'
   import TreeNode from './TreeNode.svelte'
 
   // Main application state
@@ -22,20 +31,20 @@
   let expandedFolders = new Set() // Track which folders are expanded
   let isLogExpanded = false // Track log section state
   let pdfViewerKey = 0 // Force PDF viewer reload
-  
+
   // Dynamic panel split based on log state
   $: effectiveRightPanelSplit = isLogExpanded ? rightPanelSplit : 95
-  
+
   // Force PDF viewer reload when URL changes
   $: if (pdfUrl) {
     pdfViewerKey++
   }
-  
+
   // Left panel section heights (percentages)
   let fileTreeHeight = 40
   let selectedFilesHeight = 35
   let sheetsHeight = 25
-  
+
   // Resize states
   let isResizingLeftPanel = false
   let isResizingRightPanel = false
@@ -53,7 +62,7 @@
         await SetWindowTitle(initialDir)
         addLog(`作業ディレクトリを設定しました: ${initialDir}`)
       }
-      
+
       // Get auto-update setting
       autoUpdateEnabled = await GetAutoUpdateEnabled()
     } catch (error) {
@@ -61,7 +70,7 @@
     }
 
     // Listen for directory change events from menu
-    EventsOn('directory-changed', async (newDir) => {
+    EventsOn('directory-changed', async newDir => {
       rootDirectory = newDir
       expandedFolders.clear()
       expandedFolders = new Set()
@@ -71,7 +80,7 @@
     })
 
     // Listen for file change events
-    EventsOn('file-changed', (data) => {
+    EventsOn('file-changed', data => {
       const fileName = data.file.split('\\').pop() || data.file.split('/').pop()
       addLog(`ファイルが変更されました: ${fileName} - PDFを自動更新中...`)
       // Force PDF viewer reload when file changes
@@ -79,12 +88,12 @@
     })
 
     // Listen for conversion events
-    EventsOn('conversion:error', (data) => {
+    EventsOn('conversion:error', data => {
       addLog(`自動更新エラー: ${data.message}`)
     })
 
     // Listen for conversion progress events
-    EventsOn('conversion:progress', (status) => {
+    EventsOn('conversion:progress', status => {
       if (status.status === 'completed' && status.outputPath) {
         pdfUrl = status.outputPath
         addLog(`PDFが更新されました`)
@@ -141,15 +150,15 @@
     if (index >= 0) {
       selectedFiles.splice(index, 1)
     } else {
-      selectedFiles.push({...file})
+      selectedFiles.push({ ...file })
     }
     selectedFiles = [...selectedFiles]
-    
+
     // If it's an Excel file, load its sheets
     if (file.name.endsWith('.xlsx') || file.name.endsWith('.xlsm')) {
       loadExcelSheets(file)
     }
-    
+
     addLog(`ファイル選択更新: ${file.name}`)
   }
 
@@ -161,14 +170,14 @@
     try {
       currentFile = file
       excelSheets = await GetExcelSheets(file.path)
-      
+
       // Initialize sheet selections if not exists
       if (!sheetSelections[file.path]) {
         sheetSelections[file.path] = excelSheets
           .filter(sheet => sheet.visible)
           .map(sheet => sheet.name)
       }
-      
+
       addLog(`Excelシートを読み込みました: ${file.name}`)
     } catch (error) {
       addLog(`Excelシート読み込みエラー: ${error}`)
@@ -177,12 +186,12 @@
 
   function toggleSheetSelection(sheetName) {
     if (!currentFile) return
-    
+
     const filePath = currentFile.path
     if (!sheetSelections[filePath]) {
       sheetSelections[filePath] = []
     }
-    
+
     const index = sheetSelections[filePath].indexOf(sheetName)
     if (index >= 0) {
       sheetSelections[filePath].splice(index, 1)
@@ -191,8 +200,8 @@
       sheetSelections[filePath].push(sheetName)
       addLog(`シート選択追加: ${sheetName}`)
     }
-    
-    sheetSelections = {...sheetSelections}
+
+    sheetSelections = { ...sheetSelections }
     addLog(`${currentFile.name}の選択シート: [${sheetSelections[filePath].join(', ')}]`)
   }
 
@@ -239,13 +248,13 @@
       addLog('変換するファイルが選択されていません')
       return
     }
-    
+
     isConverting = true
     addLog('PDF変換を開始します...')
-    
+
     try {
       const filePaths = selectedFiles.map(f => f.path)
-      
+
       // Build valid sheet selections - if no sheets selected, use all visible sheets
       /** @type {Record<string, string[]>} */
       const validSheetSelections = {}
@@ -260,7 +269,7 @@
           addLog(`${filePath}: 全シートを出力`)
         }
       }
-      
+
       addLog(`最終的なシート選択情報: ${JSON.stringify(validSheetSelections)}`)
       const result = await ConvertToPDF(filePaths, validSheetSelections)
       pdfUrl = result
@@ -276,7 +285,7 @@
     const timestamp = new Date().toLocaleTimeString()
     logs.push(`${timestamp}: ${message}`)
     logs = [...logs]
-    
+
     // Scroll to bottom of logs if expanded
     if (isLogExpanded) {
       setTimeout(() => {
@@ -333,7 +342,7 @@
       const newWidth = Math.max(250, Math.min(500, e.clientX - containerRect.left))
       leftPanelWidth = newWidth
     }
-    
+
     if (isResizingRightPanel) {
       const rightPanel = document.querySelector('.right-panel')
       const rightRect = rightPanel.getBoundingClientRect()
@@ -348,10 +357,10 @@
       const relativeY = e.clientY - leftRect.top - 10 // Account for header
       const panelHeight = leftRect.height - 10
       const newHeight = Math.max(20, Math.min(60, (relativeY / panelHeight) * 100))
-      
+
       const remaining = 100 - newHeight
       const ratio = selectedFilesHeight / (selectedFilesHeight + sheetsHeight)
-      
+
       fileTreeHeight = newHeight
       selectedFilesHeight = remaining * ratio
       sheetsHeight = remaining * (1 - ratio)
@@ -364,8 +373,11 @@
       const panelHeight = leftRect.height - 10
       const treeBottom = (fileTreeHeight / 100) * panelHeight
       const availableHeight = panelHeight - treeBottom
-      const newSelectedHeight = Math.max(15, Math.min(60, ((relativeY - treeBottom) / availableHeight) * 100))
-      
+      const newSelectedHeight = Math.max(
+        15,
+        Math.min(60, ((relativeY - treeBottom) / availableHeight) * 100)
+      )
+
       const totalRemaining = 100 - fileTreeHeight
       selectedFilesHeight = (newSelectedHeight / 100) * totalRemaining
       sheetsHeight = totalRemaining - selectedFilesHeight
@@ -392,9 +404,9 @@
         </div>
         <div class="file-tree">
           {#each fileTree as rootNode}
-            <TreeNode 
-              node={rootNode} 
-              {selectedFiles} 
+            <TreeNode
+              node={rootNode}
+              {selectedFiles}
               {expandedFolders}
               on:toggle-folder={handleToggleFolder}
               on:toggle-selection={handleToggleSelection}
@@ -414,16 +426,31 @@
         </div>
         <div class="selected-files">
           {#each selectedFiles as file, index}
-            <div class="selected-file-item" class:active={currentFile && currentFile.path === file.path}>
-              <div class="file-info" on:click={() => selectFileFromList(file)} on:keydown={(e) => e.key === 'Enter' && selectFileFromList(file)} tabindex="0" role="button">
+            <div
+              class="selected-file-item"
+              class:active={currentFile && currentFile.path === file.path}
+            >
+              <div
+                class="file-info"
+                on:click={() => selectFileFromList(file)}
+                on:keydown={e => e.key === 'Enter' && selectFileFromList(file)}
+                tabindex="0"
+                role="button"
+              >
                 <span class="file-icon">
                   {#if file.name.includes('.xls')}📊{:else if file.name.endsWith('.pdf')}📄{:else}📝{/if}
                 </span>
                 <span class="file-name">{file.name}</span>
               </div>
               <div class="file-controls">
-                <button class="btn-small" on:click={() => moveFileUp(index)} disabled={index === 0}>↑</button>
-                <button class="btn-small" on:click={() => moveFileDown(index)} disabled={index === selectedFiles.length - 1}>↓</button>
+                <button class="btn-small" on:click={() => moveFileUp(index)} disabled={index === 0}
+                  >↑</button
+                >
+                <button
+                  class="btn-small"
+                  on:click={() => moveFileDown(index)}
+                  disabled={index === selectedFiles.length - 1}>↓</button
+                >
                 <button class="btn-small btn-danger" on:click={() => removeFile(index)}>×</button>
               </div>
             </div>
@@ -448,8 +475,8 @@
             <div class="sheets-list">
               {#each excelSheets as sheet}
                 <label class="sheet-checkbox" class:disabled={!sheet.visible}>
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     disabled={!sheet.visible}
                     checked={isSheetSelected(sheet.name)}
                     on:change={() => toggleSheetSelection(sheet.name)}
@@ -466,19 +493,19 @@
 
         <!-- Convert Button -->
         <div class="convert-section">
-          <button 
-            class="btn-primary btn-large" 
-            on:click={convertToPDF} 
+          <button
+            class="btn-primary btn-large"
+            on:click={convertToPDF}
             disabled={selectedFiles.length === 0 || isConverting}
           >
             {#if isConverting}変換中...{:else}📄 PDFに変換{/if}
           </button>
-          
+
           <!-- Auto-update toggle -->
           <div class="auto-update-section">
             <label class="auto-update-checkbox">
-              <input 
-                type="checkbox" 
+              <input
+                type="checkbox"
                 bind:checked={autoUpdateEnabled}
                 on:change={toggleAutoUpdate}
               />
@@ -522,11 +549,13 @@
 
       <!-- Log Console -->
       <div class="log-section" style="height: {100 - effectiveRightPanelSplit}%;">
-        <div class="section-header clickable" 
-             on:click={() => isLogExpanded = !isLogExpanded} 
-             on:keydown={(e) => e.key === 'Enter' && (isLogExpanded = !isLogExpanded)} 
-             tabindex="0" 
-             role="button">
+        <div
+          class="section-header clickable"
+          on:click={() => (isLogExpanded = !isLogExpanded)}
+          on:keydown={e => e.key === 'Enter' && (isLogExpanded = !isLogExpanded)}
+          tabindex="0"
+          role="button"
+        >
           <h3>ログ</h3>
           <span class="toggle-icon">{isLogExpanded ? '▼' : '▶'}</span>
         </div>
@@ -830,7 +859,7 @@
   }
 
   /* Input elements styling */
-  input[type="checkbox"] {
+  input[type='checkbox'] {
     margin-right: 0.5rem;
     accent-color: #007bff;
   }
@@ -881,7 +910,7 @@
     cursor: pointer;
   }
 
-  .auto-update-checkbox input[type="checkbox"] {
+  .auto-update-checkbox input[type='checkbox'] {
     accent-color: #007bff;
     width: 14px;
     height: 14px;
@@ -946,7 +975,7 @@
 
   .pdf-viewer-container {
     flex: 1;
-    overflow: auto;
+    overflow: hidden;
     background: #525659;
     position: relative;
     min-height: 0;
@@ -1030,13 +1059,13 @@
       flex-direction: column;
       height: auto;
     }
-    
+
     .left-panel {
       width: 100% !important;
       max-width: none;
       max-height: 50vh;
     }
-    
+
     .resize-handle {
       display: none;
     }
