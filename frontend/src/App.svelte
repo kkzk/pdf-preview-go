@@ -186,12 +186,14 @@
     const index = sheetSelections[filePath].indexOf(sheetName)
     if (index >= 0) {
       sheetSelections[filePath].splice(index, 1)
+      addLog(`シート選択解除: ${sheetName}`)
     } else {
       sheetSelections[filePath].push(sheetName)
+      addLog(`シート選択追加: ${sheetName}`)
     }
     
     sheetSelections = {...sheetSelections}
-    addLog(`シート選択更新: ${sheetName}`)
+    addLog(`${currentFile.name}の選択シート: [${sheetSelections[filePath].join(', ')}]`)
   }
 
   function isSheetSelected(sheetName) {
@@ -243,10 +245,23 @@
     
     try {
       const filePaths = selectedFiles.map(f => f.path)
-      // Ensure sheetSelections has the correct type structure
-      const validSheetSelections = Object.keys(sheetSelections).length > 0 
-        ? sheetSelections 
-        : Object.fromEntries(filePaths.map(path => [path, []]))
+      
+      // Build valid sheet selections - if no sheets selected, use all visible sheets
+      /** @type {Record<string, string[]>} */
+      const validSheetSelections = {}
+      for (const filePath of filePaths) {
+        if (sheetSelections[filePath] && sheetSelections[filePath].length > 0) {
+          validSheetSelections[filePath] = sheetSelections[filePath]
+          addLog(`${filePath}: 選択されたシート [${sheetSelections[filePath].join(', ')}]`)
+        } else {
+          // If no sheets are selected, don't add to validSheetSelections
+          // This will cause the converter to export all sheets
+          validSheetSelections[filePath] = []
+          addLog(`${filePath}: 全シートを出力`)
+        }
+      }
+      
+      addLog(`最終的なシート選択情報: ${JSON.stringify(validSheetSelections)}`)
       const result = await ConvertToPDF(filePaths, validSheetSelections)
       pdfUrl = result
       addLog(`PDF変換が完了しました: ${result}`)

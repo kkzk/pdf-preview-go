@@ -329,6 +329,9 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 	var convertedPDFs []string
 	var errors []string
 
+	// Log sheet selections for debugging
+	runtime.LogInfo(a.ctx, fmt.Sprintf("Sheet selections: %+v", sheetSelections))
+
 	// Convert each file to PDF
 	for i, filePath := range filePaths {
 		// Emit progress event
@@ -338,7 +341,14 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 			Progress:    int((float64(i) / float64(len(filePaths))) * 100),
 		})
 
-		outputPath, err := a.converter.ConvertToPDF(filePath, sheetSelections, false)
+		// Force regeneration if sheet selections exist for this file
+		forceRegeneration := false
+		if sheets, exists := sheetSelections[filePath]; exists && len(sheets) > 0 {
+			forceRegeneration = true
+			runtime.LogInfo(a.ctx, fmt.Sprintf("Force regeneration for %s with sheets: %v", filepath.Base(filePath), sheets))
+		}
+
+		outputPath, err := a.converter.ConvertToPDF(filePath, sheetSelections, forceRegeneration)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("%s: %v", filepath.Base(filePath), err))
 			continue

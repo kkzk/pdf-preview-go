@@ -35,10 +35,17 @@ type ConvertResult struct {
 
 // ConvertToPDF converts an Office file to PDF using Office applications
 func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets map[string][]string, force bool) (string, error) {
-	// Generate cache file name based on file hash
-	hash := md5.Sum([]byte(srcPath))
+	// Generate cache file name based on file hash and sheet selection
+	hashInput := srcPath
+	if sheets, exists := selectedSheets[srcPath]; exists && len(sheets) > 0 {
+		hashInput += "|" + strings.Join(sheets, ",")
+	}
+	hash := md5.Sum([]byte(hashInput))
 	outputFileName := fmt.Sprintf("%x.pdf", hash)
 	outputPath := filepath.Join(c.cacheDir, outputFileName)
+
+	fmt.Printf("Cache key input: %s\n", hashInput)
+	fmt.Printf("Output path: %s\n", outputPath)
 
 	// Create cache directory if it doesn't exist
 	if err := os.MkdirAll(c.cacheDir, 0755); err != nil {
@@ -55,6 +62,7 @@ func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets map[string
 	if !force {
 		if outputInfo, err := os.Stat(outputPath); err == nil {
 			if srcInfo.ModTime().Equal(outputInfo.ModTime()) {
+				fmt.Printf("Using cached PDF: %s\n", outputPath)
 				return outputPath, nil // File is up to date
 			}
 		}
@@ -101,6 +109,9 @@ func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets map[string
 
 // convertExcelToPDF converts Excel file to PDF using Excel application
 func (c *OfficeConverter) convertExcelToPDF(srcPath, outputPath string, selectedSheets []string) error {
+	fmt.Printf("Converting Excel file: %s\n", srcPath)
+	fmt.Printf("Selected sheets: %v\n", selectedSheets)
+
 	// Create Excel application
 	unknown, err := oleutil.CreateObject("Excel.Application")
 	if err != nil {
@@ -137,43 +148,65 @@ func (c *OfficeConverter) convertExcelToPDF(srcPath, outputPath string, selected
 
 	// Handle sheet selection
 	if len(selectedSheets) > 0 {
+		fmt.Printf("Processing sheet selection for %d sheets\n", len(selectedSheets))
+
 		// Get worksheets collection
 		worksheets := oleutil.MustGetProperty(wb, "Worksheets").ToIDispatch()
 		defer worksheets.Release()
 
-		firstSheet := true
-		for _, sheetName := range selectedSheets {
-			// Get worksheet by name
-			sheet, err := oleutil.GetProperty(worksheets, "Item", sheetName)
-			if err != nil {
-				fmt.Printf("Warning: could not find sheet '%s': %v\n", sheetName, err)
-				continue
+		// First, hide all sheets except the selected ones
+		totalSheets := int(oleutil.MustGetProperty(worksheets, "Count").Val)
+		fmt.Printf("Total sheets in workbook: %d\n", totalSheets)
+
+		// Get all sheet names first
+		var allSheetNames []string
+		for i := 1; i <= totalSheets; i++ {
+			sheet := oleutil.MustGetProperty(worksheets, "Item", i).ToIDispatch()
+			sheetName := oleutil.MustGetProperty(sheet, "Name").ToString()
+			allSheetNames = append(allSheetNames, sheetName)
+			sheet.Release()
+		}
+		fmt.Printf("All sheet names: %v\n", allSheetNames)
+
+		// Hide non-selected sheets
+		for _, sheetName := range allSheetNames {
+			isSelected := false
+			for _, selectedName := range selectedSheets {
+				if sheetName == selectedName {
+					isSelected = true
+					break
+				}
 			}
 
-			sheetDispatch := sheet.ToIDispatch()
-			// Check if sheet is visible
-			visible := oleutil.MustGetProperty(sheetDispatch, "Visible").Value()
-			if visible != nil && visible.(int32) != 0 {
-				// Select sheet (first sheet replaces selection, others add to it)
-				_, err = oleutil.CallMethod(sheetDispatch, "Select", firstSheet)
-				if err != nil {
-					fmt.Printf("Warning: could not select sheet '%s': %v\n", sheetName, err)
-				}
-				firstSheet = false
+			sheet := oleutil.MustGetProperty(worksheets, "Item", sheetName).ToIDispatch()
+			if !isSelected {
+				fmt.Printf("Hiding sheet: %s\n", sheetName)
+				// Hide the sheet (xlSheetHidden = 0)
+				oleutil.PutProperty(sheet, "Visible", 0)
+			} else {
+				fmt.Printf("Keeping sheet visible: %s\n", sheetName)
+				// Ensure selected sheets are visible (xlSheetVisible = -1)
+				oleutil.PutProperty(sheet, "Visible", -1)
 			}
-			sheetDispatch.Release()
-			sheet.Clear()
+			sheet.Release()
 		}
 
-		// Export selected sheets
-		activeSheet := oleutil.MustGetProperty(wb, "ActiveSheet").ToIDispatch()
-		defer activeSheet.Release()
+		// Select the first selected sheet to make it active
+		if len(selectedSheets) > 0 {
+			fmt.Printf("Activating first selected sheet: %s\n", selectedSheets[0])
+			firstSheet := oleutil.MustGetProperty(worksheets, "Item", selectedSheets[0]).ToIDispatch()
+			oleutil.CallMethod(firstSheet, "Select")
+			firstSheet.Release()
+		}
 
-		_, err = oleutil.CallMethod(activeSheet, "ExportAsFixedFormat", 0, outputPath, 0)
+		fmt.Printf("Exporting workbook with selected sheets only\n")
+		// Export entire workbook (now only visible sheets will be exported)
+		_, err = oleutil.CallMethod(wb, "ExportAsFixedFormat", 0, outputPath, 0)
 		if err != nil {
 			return fmt.Errorf("failed to export Excel to PDF: %v", err)
 		}
 	} else {
+		fmt.Printf("No specific sheets selected, exporting entire workbook\n")
 		// Export entire workbook
 		_, err = oleutil.CallMethod(wb, "ExportAsFixedFormat", 0, outputPath, 0)
 		if err != nil {
