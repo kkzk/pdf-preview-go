@@ -14,7 +14,7 @@
 - **ビルド**: `wails build`（配布用バイナリ作成）
 - **依存インストール**: `Set-Location frontend; npm install`
 - **JSバインディング生成**: `wails generate module`（GoメソッドをJS化）
-- **テスト時のアプリケーション起動**: `./pdf-preview-go.exe test` （ test ディレクトリを指定して起動）
+- **テスト時のアプリケーション起動**: `.\build\bin\pdf-preview-go.exe .\test` （引数に test ディレクトリを指定して起動）
 
 ## PowerShell環境での注意点
 - **コマンド実行**: PowerShellでは `cd` の代わりに `Set-Location` を使用

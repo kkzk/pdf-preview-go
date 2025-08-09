@@ -116,7 +116,7 @@ func (a *App) ChangeWorkingDirectory() (string, error) {
 	if dir != "" {
 		// Update window title with new directory
 		runtime.WindowSetTitle(a.ctx, fmt.Sprintf("PDF Preview - %s", filepath.Base(dir)))
-		
+
 		// Emit event to notify frontend
 		runtime.EventsEmit(a.ctx, "directory-changed", dir)
 		return dir, nil

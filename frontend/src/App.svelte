@@ -23,6 +23,17 @@
   let leftPanelWidth = 300
   let rightPanelSplit = 70 // percentage for PDF viewer
   let expandedFolders = new Set() // Track which folders are expanded
+  
+  // Left panel section heights (percentages)
+  let fileTreeHeight = 40
+  let selectedFilesHeight = 35
+  let sheetsHeight = 25
+  
+  // Resize states
+  let isResizingLeftPanel = false
+  let isResizingRightPanel = false
+  let isResizingFileTree = false
+  let isResizingSelectedFiles = false
 
   // Initialize component
   onMount(async () => {
@@ -231,12 +242,85 @@
     if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB'
     return Math.round(bytes / (1024 * 1024)) + ' MB'
   }
+
+  // Resize handlers
+  function startResizeLeftPanel(e) {
+    isResizingLeftPanel = true
+    e.preventDefault()
+  }
+
+  function startResizeRightPanel(e) {
+    isResizingRightPanel = true
+    e.preventDefault()
+  }
+
+  function startResizeFileTree(e) {
+    isResizingFileTree = true
+    e.preventDefault()
+  }
+
+  function startResizeSelectedFiles(e) {
+    isResizingSelectedFiles = true
+    e.preventDefault()
+  }
+
+  function handleMouseMove(e) {
+    if (isResizingLeftPanel) {
+      const containerRect = document.querySelector('.app-container').getBoundingClientRect()
+      const newWidth = Math.max(250, Math.min(500, e.clientX - containerRect.left))
+      leftPanelWidth = newWidth
+    }
+    
+    if (isResizingRightPanel) {
+      const rightPanel = document.querySelector('.right-panel')
+      const rightRect = rightPanel.getBoundingClientRect()
+      const relativeY = e.clientY - rightRect.top
+      const newSplit = Math.max(30, Math.min(80, (relativeY / rightRect.height) * 100))
+      rightPanelSplit = newSplit
+    }
+
+    if (isResizingFileTree) {
+      const leftPanel = document.querySelector('.left-panel')
+      const leftRect = leftPanel.getBoundingClientRect()
+      const relativeY = e.clientY - leftRect.top - 10 // Account for header
+      const panelHeight = leftRect.height - 10
+      const newHeight = Math.max(20, Math.min(60, (relativeY / panelHeight) * 100))
+      
+      const remaining = 100 - newHeight
+      const ratio = selectedFilesHeight / (selectedFilesHeight + sheetsHeight)
+      
+      fileTreeHeight = newHeight
+      selectedFilesHeight = remaining * ratio
+      sheetsHeight = remaining * (1 - ratio)
+    }
+
+    if (isResizingSelectedFiles) {
+      const leftPanel = document.querySelector('.left-panel')
+      const leftRect = leftPanel.getBoundingClientRect()
+      const relativeY = e.clientY - leftRect.top - 10
+      const panelHeight = leftRect.height - 10
+      const treeBottom = (fileTreeHeight / 100) * panelHeight
+      const availableHeight = panelHeight - treeBottom
+      const newSelectedHeight = Math.max(15, Math.min(60, ((relativeY - treeBottom) / availableHeight) * 100))
+      
+      const totalRemaining = 100 - fileTreeHeight
+      selectedFilesHeight = (newSelectedHeight / 100) * totalRemaining
+      sheetsHeight = totalRemaining - selectedFilesHeight
+    }
+  }
+
+  function handleMouseUp() {
+    isResizingLeftPanel = false
+    isResizingRightPanel = false
+    isResizingFileTree = false
+    isResizingSelectedFiles = false
+  }
 </script>
 
-<main>
-  <!-- Development Test Area (collapsible) -->
-  <details style="margin-bottom: 1rem;">
-    <summary>Development Test Area</summary>
+<main on:mousemove={handleMouseMove} on:mouseup={handleMouseUp}>
+  <!-- Development Section -->
+  <details>
+    <summary>Development Test</summary>
     <div class="dev-section">
       <div class="result">{resultText}</div>
       <div class="input-box">
@@ -251,7 +335,7 @@
     <!-- Left Panel -->
     <div class="left-panel" style="width: {leftPanelWidth}px;">
       <!-- File Tree -->
-      <div class="panel-section file-tree-section">
+      <div class="panel-section file-tree-section" style="height: {fileTreeHeight}%;">
         <h3>ファイル一覧</h3>
         <div class="file-tree">
           {#each fileTree as rootNode}
@@ -266,8 +350,11 @@
         </div>
       </div>
 
+      <!-- Resize Handle for File Tree -->
+      <div class="resize-handle horizontal" on:mousedown={startResizeFileTree}></div>
+
       <!-- Selected Files List -->
-      <div class="panel-section selected-files-section">
+      <div class="panel-section selected-files-section" style="height: {selectedFilesHeight}%;">
         <h3>選択ファイル ({selectedFiles.length})</h3>
         <div class="selected-files">
           {#each selectedFiles as file, index}
@@ -288,46 +375,52 @@
         </div>
       </div>
 
-      <!-- Excel Sheets -->
-      <div class="panel-section sheets-section">
-        <h3>シート選択</h3>
-        {#if currentFile && excelSheets.length > 0}
-          <div class="current-file-info">
-            <strong>{currentFile.name}</strong>
-          </div>
-          <div class="sheets-list">
-            {#each excelSheets as sheet}
-              <label class="sheet-checkbox" class:disabled={!sheet.visible}>
-                <input 
-                  type="checkbox" 
-                  disabled={!sheet.visible}
-                  checked={isSheetSelected(sheet.name)}
-                  on:change={() => toggleSheetSelection(sheet.name)}
-                />
-                <span class="sheet-name">{sheet.name}</span>
-                {#if !sheet.visible}<span class="sheet-hidden">(非表示)</span>{/if}
-              </label>
-            {/each}
-          </div>
-        {:else}
-          <div class="no-sheets">Excelファイルを選択してください</div>
-        {/if}
-      </div>
+      <!-- Resize Handle for Selected Files -->
+      <div class="resize-handle horizontal" on:mousedown={startResizeSelectedFiles}></div>
 
-      <!-- Convert Button -->
-      <div class="panel-section">
-        <button 
-          class="btn-primary btn-large" 
-          on:click={convertToPDF} 
-          disabled={selectedFiles.length === 0 || isConverting}
-        >
-          {#if isConverting}変換中...{:else}📄 PDFに変換{/if}
-        </button>
+      <!-- Excel Sheets -->
+            <!-- Excel Sheets -->
+      <div class="panel-section sheets-section" style="height: {sheetsHeight}%;">
+        <h3>シート選択</h3>
+        <div class="sheets-content">
+          {#if currentFile && excelSheets.length > 0}
+            <div class="current-file-info">
+              <strong>{currentFile.name}</strong>
+            </div>
+            <div class="sheets-list">
+              {#each excelSheets as sheet}
+                <label class="sheet-checkbox" class:disabled={!sheet.visible}>
+                  <input 
+                    type="checkbox" 
+                    disabled={!sheet.visible}
+                    checked={isSheetSelected(sheet.name)}
+                    on:change={() => toggleSheetSelection(sheet.name)}
+                  />
+                  <span class="sheet-name">{sheet.name}</span>
+                  {#if !sheet.visible}<span class="sheet-hidden">(非表示)</span>{/if}
+                </label>
+              {/each}
+            </div>
+          {:else}
+            <div class="no-sheets">Excelファイルを選択してください</div>
+          {/if}
+        </div>
+
+        <!-- Convert Button -->
+        <div class="convert-section">
+          <button 
+            class="btn-primary btn-large" 
+            on:click={convertToPDF} 
+            disabled={selectedFiles.length === 0 || isConverting}
+          >
+            {#if isConverting}変換中...{:else}📄 PDFに変換{/if}
+          </button>
+        </div>
       </div>
     </div>
 
-    <!-- Resize Handle -->
-    <div class="resize-handle"></div>
+    <!-- Resize Handle for Left Panel -->
+    <div class="resize-handle vertical" on:mousedown={startResizeLeftPanel}></div>
 
     <!-- Right Panel -->
     <div class="right-panel">
@@ -349,6 +442,9 @@
           {/if}
         </div>
       </div>
+
+      <!-- Resize Handle for Right Panel -->
+      <div class="resize-handle horizontal" on:mousedown={startResizeRightPanel}></div>
 
       <!-- Log Console -->
       <div class="log-section" style="height: {100 - rightPanelSplit}%;">
@@ -430,12 +526,17 @@
     flex-direction: column;
     overflow: hidden;
     min-width: 250px;
-    max-width: 400px;
+    max-width: 500px;
+    position: relative;
   }
 
   .panel-section {
     padding: 1rem;
     border-bottom: 1px solid #dee2e6;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
   }
 
   .panel-section h3 {
@@ -443,34 +544,98 @@
     font-size: 14px;
     font-weight: 600;
     color: #495057;
+    flex-shrink: 0;
   }
 
   /* File tree */
   .file-tree-section {
-    flex: 2;
-    min-height: 0;
+    min-height: 150px;
   }
 
   .file-tree {
-    max-height: 300px;
+    flex: 1;
     overflow-y: auto;
     border: 1px solid #dee2e6;
     border-radius: 4px;
     background: white;
+    min-height: 0;
   }
 
   /* Selected files */
   .selected-files-section {
-    flex: 2;
-    min-height: 0;
+    min-height: 100px;
   }
 
   .selected-files {
-    max-height: 200px;
+    flex: 1;
     overflow-y: auto;
     border: 1px solid #dee2e6;
     border-radius: 4px;
     background: white;
+    min-height: 0;
+  }
+
+  /* Resize handles */
+  .resize-handle {
+    background: #dee2e6;
+    position: relative;
+    user-select: none;
+    transition: background-color 0.2s ease;
+  }
+
+  .resize-handle:hover {
+    background: #adb5bd;
+  }
+
+  .resize-handle.vertical {
+    width: 4px;
+    cursor: ew-resize;
+    flex-shrink: 0;
+  }
+
+  .resize-handle.horizontal {
+    height: 4px;
+    cursor: ns-resize;
+    flex-shrink: 0;
+    margin: 0;
+  }
+
+  /* Sheets section */
+  .sheets-section {
+    min-height: 80px;
+  }
+
+  .sheets-content {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .current-file-info {
+    margin-bottom: 0.5rem;
+    padding: 0.5rem;
+    background: white;
+    border-radius: 4px;
+    border: 1px solid #dee2e6;
+    font-size: 12px;
+    color: #495057;
+    flex-shrink: 0;
+  }
+
+  .sheets-list {
+    flex: 1;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    background: white;
+    min-height: 0;
+  }
+
+  .convert-section {
+    margin-top: auto;
+    padding-top: 0.5rem;
+    flex-shrink: 0;
   }
 
   .selected-file-item {
@@ -538,30 +703,6 @@
 
   .btn-danger:hover {
     background: #c82333;
-  }
-
-  /* Sheets section */
-  .sheets-section {
-    flex: 1;
-    min-height: 0;
-  }
-
-  .current-file-info {
-    margin-bottom: 0.5rem;
-    padding: 0.5rem;
-    background: white;
-    border-radius: 4px;
-    border: 1px solid #dee2e6;
-    font-size: 12px;
-    color: #495057;
-  }
-
-  .sheets-list {
-    max-height: 120px;
-    overflow-y: auto;
-    border: 1px solid #dee2e6;
-    border-radius: 4px;
-    background: white;
   }
 
   .sheet-checkbox {
@@ -640,17 +781,6 @@
     font-weight: 600;
   }
 
-  /* Resize handle */
-  .resize-handle {
-    width: 4px;
-    background: #dee2e6;
-    cursor: col-resize;
-  }
-
-  .resize-handle:hover {
-    background: #007bff;
-  }
-
   /* Right panel */
   .right-panel {
     flex: 1;
@@ -663,6 +793,7 @@
     padding: 0.5rem 1rem;
     background: #f8f9fa;
     border-bottom: 1px solid #dee2e6;
+    flex-shrink: 0;
   }
 
   .section-header h3 {
@@ -676,7 +807,7 @@
   .pdf-viewer-section {
     display: flex;
     flex-direction: column;
-    border-bottom: 1px solid #dee2e6;
+    overflow: hidden;
   }
 
   .pdf-viewer-container {
@@ -684,6 +815,7 @@
     overflow: auto;
     background: #525659;
     position: relative;
+    min-height: 0;
   }
 
   .pdf-viewer {
