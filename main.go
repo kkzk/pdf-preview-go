@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"flag"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed all:frontend/dist
@@ -62,6 +64,12 @@ func main() {
 		app.ChangeWorkingDirectory()
 	})
 	fileMenu.AddSeparator()
+	fileMenu.AddText("PDFを保存", keys.CmdOrCtrl("s"), func(_ *menu.CallbackData) {
+		if err := app.ShowSaveDialog(); err != nil {
+			runtime.LogError(app.ctx, err.Error())
+		}
+	})
+	fileMenu.AddSeparator()
 	fileMenu.AddText("終了", keys.CmdOrCtrl("q"), func(_ *menu.CallbackData) {
 		// App will quit automatically
 	})
@@ -78,6 +86,41 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.Startup,
 		OnShutdown:       app.Shutdown,
+		OnBeforeClose: func(ctx context.Context) (prevent bool) {
+			if app.HasUnsavedChanges() {
+				// Show confirmation dialog
+				selection, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+					Type:          runtime.QuestionDialog,
+					Title:         "未保存の変更があります",
+					Message:       "PDFファイルに未保存の変更があります。保存しますか？",
+					Buttons:       []string{"保存", "保存しない", "キャンセル"},
+					DefaultButton: "保存",
+				})
+
+				if err != nil {
+					runtime.LogError(ctx, "Dialog error: "+err.Error())
+					return false // Allow close on error
+				}
+
+				switch selection {
+				case "保存":
+					if err := app.ShowSaveDialog(); err != nil {
+						if err.Error() == "user_cancelled" {
+							// User cancelled save dialog, prevent app close
+							return true
+						}
+						runtime.LogError(ctx, "Save error: "+err.Error())
+						return true // Prevent close on save error
+					}
+					return false // Allow close after successful save
+				case "保存しない":
+					return false // Allow close without saving
+				default: // "キャンセル" or closed dialog
+					return true // Prevent close
+				}
+			}
+			return false // Allow close if no unsaved changes
+		},
 		Bind: []interface{}{
 			app,
 		},

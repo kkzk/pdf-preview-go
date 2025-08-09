@@ -8,6 +8,8 @@ export function ConvertToPDF(arg1:Array<string>,arg2:Record<string, Array<string
 
 export function GetAutoUpdateEnabled():Promise<boolean>;
 
+export function GetDefaultSavePath():Promise<string>;
+
 export function GetDirectoryContents(arg1:string):Promise<Array<main.FileInfo>>;
 
 export function GetDirectoryTree(arg1:string):Promise<Array<main.FileInfo>>;
@@ -22,12 +24,20 @@ export function GetWatchStatus():Promise<Record<string, any>>;
 
 export function Greet(arg1:string):Promise<string>;
 
+export function HasUnsavedChanges():Promise<boolean>;
+
+export function MarkAsModified():Promise<void>;
+
 export function OpenDirectoryDialog():Promise<string>;
 
 export function OpenFileDialog():Promise<string>;
 
+export function SavePdfAs(arg1:string):Promise<void>;
+
 export function SetAutoUpdateEnabled(arg1:boolean):Promise<void>;
 
 export function SetWindowTitle(arg1:string):Promise<void>;
+
+export function ShowSaveDialog():Promise<void>;
 
 export function StartWatchingDirectory(arg1:string):Promise<void>;

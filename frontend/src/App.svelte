@@ -3,12 +3,15 @@
   import {
     ConvertToPDF,
     GetAutoUpdateEnabled,
+    GetDefaultSavePath,
     GetDirectoryContents,
     GetDirectoryTree,
     GetExcelSheets,
     GetInitialDirectory,
+    HasUnsavedChanges,
     SetAutoUpdateEnabled,
     SetWindowTitle,
+    ShowSaveDialog,
   } from '../wailsjs/go/main/App.js'
   import { EventsOff, EventsOn } from '../wailsjs/runtime/runtime.js'
   import TreeNode from './TreeNode.svelte'
@@ -24,6 +27,8 @@
   let logs = []
   let isConverting = false
   let autoUpdateEnabled = true
+  let hasUnsavedChanges = false
+  let defaultSavePath = ''
 
   // UI state
   let leftPanelWidth = 300
@@ -65,6 +70,9 @@
 
       // Get auto-update setting
       autoUpdateEnabled = await GetAutoUpdateEnabled()
+
+      // Initialize save status
+      await updateSaveStatus()
     } catch (error) {
       addLog(`作業ディレクトリ取得エラー: ${error}`)
     }
@@ -93,10 +101,12 @@
     })
 
     // Listen for conversion progress events
-    EventsOn('conversion:progress', status => {
+    EventsOn('conversion:progress', async status => {
       if (status.status === 'completed' && status.outputPath) {
         pdfUrl = status.outputPath
         addLog(`PDFが更新されました`)
+        // Update save status after PDF generation
+        await updateSaveStatus()
       }
     })
   })
@@ -274,10 +284,56 @@
       const result = await ConvertToPDF(filePaths, validSheetSelections)
       pdfUrl = result
       addLog(`PDF変換が完了しました: ${result}`)
+
+      // Update save status after conversion
+      await updateSaveStatus()
     } catch (error) {
       addLog(`PDF変換エラー: ${error}`)
     } finally {
       isConverting = false
+    }
+  }
+
+  // Save related functions
+  async function saveCurrentPdf() {
+    if (!pdfUrl) {
+      addLog('保存するPDFがありません')
+      return
+    }
+
+    try {
+      addLog('PDFの保存を開始します...')
+      await ShowSaveDialog()
+
+      // If we reach here, save was successful
+      await updateSaveStatus()
+      addLog('PDFファイルを保存しました')
+    } catch (error) {
+      // Handle different types of errors
+      const errorStr = error ? error.toString() : ''
+
+      if (errorStr.includes('user_cancelled')) {
+        addLog('保存がキャンセルされました')
+      } else if (errorStr.includes('cancelled') || errorStr.includes('cancel')) {
+        addLog('保存がキャンセルされました')
+      } else if (error) {
+        addLog(`保存エラー: ${errorStr}`)
+        console.error('Save error:', error)
+      } else {
+        addLog('保存がキャンセルされました')
+      }
+
+      // Update status even after error
+      await updateSaveStatus()
+    }
+  }
+
+  async function updateSaveStatus() {
+    try {
+      hasUnsavedChanges = await HasUnsavedChanges()
+      defaultSavePath = await GetDefaultSavePath()
+    } catch (error) {
+      console.error('Failed to update save status:', error)
     }
   }
 
@@ -523,8 +579,25 @@
     <div class="right-panel">
       <!-- PDF Viewer -->
       <div class="pdf-viewer-section" style="height: {effectiveRightPanelSplit}%;">
-        <div class="section-header">
-          <h3>PDFプレビュー</h3>
+        <div class="section-header pdf-header">
+          <div class="pdf-title">
+            <h3>PDFプレビュー</h3>
+            {#if hasUnsavedChanges}
+              <span class="unsaved-indicator">●未保存</span>
+            {/if}
+          </div>
+          {#if pdfUrl}
+            <div class="pdf-actions">
+              <button
+                class="btn-save"
+                on:click={() =>
+                  saveCurrentPdf().catch(error => console.error('Button save error:', error))}
+                title="PDFファイルを保存"
+              >
+                💾 保存
+              </button>
+            </div>
+          {/if}
         </div>
         <div class="pdf-viewer-container">
           {#if pdfUrl}
@@ -964,6 +1037,50 @@
     font-size: 14px;
     font-weight: 600;
     color: #495057;
+  }
+
+  /* PDF header with save functionality */
+  .pdf-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .pdf-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .unsaved-indicator {
+    color: #dc3545;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .pdf-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .btn-save {
+    background: #28a745;
+    color: white;
+    border: none;
+    padding: 0.375rem 0.75rem;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out;
+  }
+
+  .btn-save:hover {
+    background: #218838;
+  }
+
+  .btn-save:active {
+    background: #1e7e34;
   }
 
   /* PDF viewer */

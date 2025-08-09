@@ -14,6 +14,10 @@ export function GetAutoUpdateEnabled() {
   return window['go']['main']['App']['GetAutoUpdateEnabled']();
 }
 
+export function GetDefaultSavePath() {
+  return window['go']['main']['App']['GetDefaultSavePath']();
+}
+
 export function GetDirectoryContents(arg1) {
   return window['go']['main']['App']['GetDirectoryContents'](arg1);
 }
@@ -42,6 +46,14 @@ export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
 
+export function HasUnsavedChanges() {
+  return window['go']['main']['App']['HasUnsavedChanges']();
+}
+
+export function MarkAsModified() {
+  return window['go']['main']['App']['MarkAsModified']();
+}
+
 export function OpenDirectoryDialog() {
   return window['go']['main']['App']['OpenDirectoryDialog']();
 }
@@ -50,12 +62,20 @@ export function OpenFileDialog() {
   return window['go']['main']['App']['OpenFileDialog']();
 }
 
+export function SavePdfAs(arg1) {
+  return window['go']['main']['App']['SavePdfAs'](arg1);
+}
+
 export function SetAutoUpdateEnabled(arg1) {
   return window['go']['main']['App']['SetAutoUpdateEnabled'](arg1);
 }
 
 export function SetWindowTitle(arg1) {
   return window['go']['main']['App']['SetWindowTitle'](arg1);
+}
+
+export function ShowSaveDialog() {
+  return window['go']['main']['App']['ShowSaveDialog']();
 }
 
 export function StartWatchingDirectory(arg1) {

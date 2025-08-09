@@ -28,6 +28,9 @@ type App struct {
 	autoUpdateEnabled   bool
 	fileModTimes        map[string]time.Time // Track file modification times
 	pollingTicker       *time.Ticker
+	currentPdfPath      string // Current PDF file path in temp
+	savedPdfPath        string // Last saved PDF path
+	hasUnsavedChanges   bool   // Whether there are unsaved changes
 }
 
 // FileInfo represents file information
@@ -71,6 +74,9 @@ func NewApp(initialDir string) *App {
 		lastConvertedSheets: make(map[string][]string),
 		autoUpdateEnabled:   true,
 		fileModTimes:        make(map[string]time.Time),
+		currentPdfPath:      "",
+		savedPdfPath:        "",
+		hasUnsavedChanges:   false,
 	}
 
 	return app
@@ -378,6 +384,10 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 		a.lastConvertedFiles = filePaths
 		a.lastConvertedSheets = sheetSelections
 
+		// Record current PDF path and mark as modified
+		a.currentPdfPath = convertedPDFs[0]
+		a.hasUnsavedChanges = true
+
 		// Record file modification times
 		a.recordFileModTimes(filePaths)
 
@@ -425,6 +435,10 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 	// Save converted files and sheet selections for auto-update
 	a.lastConvertedFiles = filePaths
 	a.lastConvertedSheets = sheetSelections
+
+	// Record current PDF path and mark as modified
+	a.currentPdfPath = mergedPath
+	a.hasUnsavedChanges = true
 
 	// Record file modification times
 	a.recordFileModTimes(filePaths)
@@ -695,4 +709,127 @@ func (a *App) checkFileModifications() {
 	if hasChanges {
 		go a.autoRegeneratePDF()
 	}
+}
+
+// SavePdfAs saves the current PDF to a specified location
+func (a *App) SavePdfAs(savePath string) error {
+	if a.currentPdfPath == "" {
+		return fmt.Errorf("no PDF to save")
+	}
+
+	// Copy the current PDF to the specified location
+	sourceFile, err := os.Open(a.currentPdfPath)
+	if err != nil {
+		return fmt.Errorf("failed to open source PDF: %v", err)
+	}
+	defer sourceFile.Close()
+
+	// Create destination directory if it doesn't exist
+	destDir := filepath.Dir(savePath)
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return fmt.Errorf("failed to create destination directory: %v", err)
+	}
+
+	destFile, err := os.Create(savePath)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %v", err)
+	}
+	defer destFile.Close()
+
+	// Copy file content
+	_, err = destFile.ReadFrom(sourceFile)
+	if err != nil {
+		return fmt.Errorf("failed to copy file: %v", err)
+	}
+
+	a.savedPdfPath = savePath
+	a.hasUnsavedChanges = false
+
+	return nil
+}
+
+// GetDefaultSavePath returns the default save path based on initial directory or file
+func (a *App) GetDefaultSavePath() string {
+	if a.initialDir == "" {
+		return ""
+	}
+
+	// Clean the path and get absolute path
+	absPath, err := filepath.Abs(a.initialDir)
+	if err != nil {
+		absPath = a.initialDir
+	}
+
+	// Check if it's a file or directory
+	if info, err := os.Stat(absPath); err == nil {
+		if info.IsDir() {
+			// Directory: use directory name + .pdf
+			dirName := filepath.Base(absPath)
+			return filepath.Join(filepath.Dir(absPath), dirName+".pdf")
+		} else {
+			// File: use file name (without extension) + .pdf
+			baseName := strings.TrimSuffix(filepath.Base(absPath), filepath.Ext(absPath))
+			return filepath.Join(filepath.Dir(absPath), baseName+".pdf")
+		}
+	}
+
+	// Fallback: treat as directory
+	dirName := filepath.Base(absPath)
+	return filepath.Join(filepath.Dir(absPath), dirName+".pdf")
+}
+
+// HasUnsavedChanges returns whether there are unsaved changes
+func (a *App) HasUnsavedChanges() bool {
+	return a.hasUnsavedChanges
+}
+
+// MarkAsModified marks the current PDF as having unsaved changes
+func (a *App) MarkAsModified() {
+	a.hasUnsavedChanges = true
+}
+
+// ShowSaveDialog shows the save dialog and saves the PDF
+func (a *App) ShowSaveDialog() error {
+	if a.currentPdfPath == "" {
+		return fmt.Errorf("no PDF to save")
+	}
+
+	// Get default save path
+	defaultPath := a.GetDefaultSavePath()
+	if defaultPath == "" {
+		return fmt.Errorf("unable to determine default save path")
+	}
+
+	// Show save file dialog
+	filePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		DefaultDirectory:     filepath.Dir(defaultPath),
+		DefaultFilename:      filepath.Base(defaultPath),
+		Title:                "PDFファイルを保存",
+		ShowHiddenFiles:      false,
+		CanCreateDirectories: true,
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: "PDFファイル (*.pdf)",
+				Pattern:     "*.pdf",
+			},
+		},
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to show save dialog: %v", err)
+	}
+
+	if filePath == "" {
+		// User cancelled - return a special error to indicate cancellation
+		return fmt.Errorf("user_cancelled")
+	}
+
+	// Save the PDF
+	err = a.SavePdfAs(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to save PDF: %v", err)
+	}
+
+	// Successfully saved
+	return nil
 }
