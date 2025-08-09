@@ -6,6 +6,8 @@ export function ConvertToPDF(arg1:Array<string>,arg2:Record<string, Array<string
 
 export function GetDirectoryContents(arg1:string):Promise<Array<main.FileInfo>>;
 
+export function GetDirectoryTree(arg1:string):Promise<Array<main.FileInfo>>;
+
 export function GetExcelSheets(arg1:string):Promise<Array<main.ExcelSheetInfo>>;
 
 export function GetFileInfo(arg1:string):Promise<Record<string, any>>;

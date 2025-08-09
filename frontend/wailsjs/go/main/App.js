@@ -10,6 +10,10 @@ export function GetDirectoryContents(arg1) {
   return window['go']['main']['App']['GetDirectoryContents'](arg1);
 }
 
+export function GetDirectoryTree(arg1) {
+  return window['go']['main']['App']['GetDirectoryTree'](arg1);
+}
+
 export function GetExcelSheets(arg1) {
   return window['go']['main']['App']['GetExcelSheets'](arg1);
 }

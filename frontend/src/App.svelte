@@ -1,6 +1,7 @@
 <script>
-  import {Greet, OpenDirectoryDialog, GetDirectoryContents, GetExcelSheets, ConvertToPDF, GetFileInfo, GetInitialDirectory} from '../wailsjs/go/main/App.js'
+  import {Greet, OpenDirectoryDialog, GetDirectoryContents, GetDirectoryTree, GetExcelSheets, ConvertToPDF, GetFileInfo, GetInitialDirectory} from '../wailsjs/go/main/App.js'
   import {onMount} from 'svelte'
+  import TreeNode from './TreeNode.svelte'
 
   // Development test variables
   let resultText = "Please enter your name below 👇"
@@ -20,6 +21,7 @@
   // UI state
   let leftPanelWidth = 300
   let rightPanelSplit = 70 // percentage for PDF viewer
+  let expandedFolders = new Set() // Track which folders are expanded
 
   // Initialize component
   onMount(async () => {
@@ -54,11 +56,38 @@
 
   async function loadFileTree() {
     try {
-      fileTree = await GetDirectoryContents(rootDirectory)
+      fileTree = await GetDirectoryTree(rootDirectory)
       addLog(`フォルダを読み込みました: ${rootDirectory}`)
     } catch (error) {
-      addLog(`フォルダ読み込みエラー: ${error}`)
+      // Fallback to flat directory listing if tree fails
+      try {
+        fileTree = await GetDirectoryContents(rootDirectory)
+        addLog(`フォルダを読み込みました (フラット表示): ${rootDirectory}`)
+      } catch (fallbackError) {
+        addLog(`フォルダ読み込みエラー: ${error}`)
+      }
     }
+  }
+
+  function toggleFolder(folderPath) {
+    if (expandedFolders.has(folderPath)) {
+      expandedFolders.delete(folderPath)
+    } else {
+      expandedFolders.add(folderPath)
+    }
+    expandedFolders = new Set(expandedFolders) // Trigger reactivity
+  }
+
+  function isFolderExpanded(folderPath) {
+    return expandedFolders.has(folderPath)
+  }
+
+  function handleToggleFolder(event) {
+    toggleFolder(event.detail)
+  }
+
+  function handleToggleSelection(event) {
+    toggleFileSelection(event.detail)
   }
 
   function toggleFileSelection(file) {
@@ -233,21 +262,14 @@
       <div class="panel-section file-tree-section">
         <h3>ファイル一覧</h3>
         <div class="file-tree">
-          {#each fileTree as file}
-            <div class="file-item">
-              <label class="file-checkbox">
-                <input 
-                  type="checkbox" 
-                  checked={isFileSelected(file)}
-                  on:change={() => toggleFileSelection(file)}
-                />
-                <span class="file-icon">
-                  {#if file.isDir}📁{:else if file.name.endsWith('.pdf')}📄{:else if file.name.includes('.xls')}📊{:else}📝{/if}
-                </span>
-                <span class="file-name">{file.name}</span>
-                <span class="file-size">{formatFileSize(file.size)}</span>
-              </label>
-            </div>
+          {#each fileTree as rootNode}
+            <TreeNode 
+              node={rootNode} 
+              {selectedFiles} 
+              {expandedFolders}
+              on:toggle-folder={handleToggleFolder}
+              on:toggle-selection={handleToggleSelection}
+            />
           {/each}
         </div>
       </div>
@@ -447,41 +469,11 @@
   }
 
   .file-tree {
-    max-height: 200px;
+    max-height: 300px;
     overflow-y: auto;
     border: 1px solid #dee2e6;
     border-radius: 4px;
     background: white;
-  }
-
-  .file-item {
-    border-bottom: 1px solid #f8f9fa;
-  }
-
-  .file-checkbox {
-    display: flex;
-    align-items: center;
-    padding: 0.5rem;
-    cursor: pointer;
-    gap: 0.5rem;
-  }
-
-  .file-checkbox:hover {
-    background: #f8f9fa;
-  }
-
-  .file-icon {
-    font-size: 16px;
-  }
-
-  .file-name {
-    flex: 1;
-    font-size: 12px;
-  }
-
-  .file-size {
-    font-size: 11px;
-    color: #6c757d;
   }
 
   /* Selected files */
@@ -504,6 +496,7 @@
     padding: 0.5rem;
     border-bottom: 1px solid #f8f9fa;
     gap: 0.5rem;
+    background: white;
   }
 
   .selected-file-item:hover {
@@ -525,6 +518,7 @@
 
   .file-info .file-name {
     font-size: 12px;
+    color: #495057;
   }
 
   .file-controls {
@@ -537,6 +531,7 @@
     font-size: 10px;
     border: 1px solid #ddd;
     background: white;
+    color: #495057;
     border-radius: 2px;
     cursor: pointer;
     min-width: 20px;
@@ -544,6 +539,7 @@
 
   .btn-small:hover:not(:disabled) {
     background: #f8f9fa;
+    color: #212529;
   }
 
   .btn-small:disabled {
@@ -574,6 +570,7 @@
     border-radius: 4px;
     border: 1px solid #dee2e6;
     font-size: 12px;
+    color: #495057;
   }
 
   .sheets-list {
@@ -591,6 +588,7 @@
     cursor: pointer;
     gap: 0.5rem;
     border-bottom: 1px solid #f8f9fa;
+    background: white;
   }
 
   .sheet-checkbox:hover:not(.disabled) {
@@ -600,10 +598,12 @@
   .sheet-checkbox.disabled {
     opacity: 0.5;
     cursor: not-allowed;
+    background: #f8f9fa;
   }
 
   .sheet-name {
     font-size: 12px;
+    color: #495057;
   }
 
   .sheet-hidden {
@@ -616,6 +616,18 @@
     text-align: center;
     color: #6c757d;
     font-size: 12px;
+    background: white;
+  }
+
+  /* Input elements styling */
+  input[type="checkbox"] {
+    margin-right: 0.5rem;
+    accent-color: #007bff;
+  }
+
+  /* Text color improvements */
+  label {
+    color: #495057;
   }
 
   /* Buttons */
