@@ -36,29 +36,28 @@
   </div>
   <div class="selected-files">
     {#each selectedFiles as file, index}
-      <div class="selected-file-item" class:active={currentFile && currentFile.path === file.path}>
-        <div
-          class="file-info"
-          on:click={() => selectFileFromList(file)}
-          on:keydown={e => e.key === 'Enter' && selectFileFromList(file)}
-          tabindex="0"
-          role="button"
-        >
+      <div class="selected-file-item" 
+           class:active={currentFile && currentFile.path === file.path}
+           on:click={() => selectFileFromList(file)}
+           on:keydown={e => e.key === 'Enter' && selectFileFromList(file)}
+           tabindex="0"
+           role="button">
+        <div class="file-info">
           <span class="file-icon">
             {#if file.name.includes('.xls')}📊{:else if file.name.endsWith('.pdf')}📄{:else}📝{/if}
           </span>
           <span class="file-name">{file.name}</span>
         </div>
         <div class="file-controls">
-          <button class="btn-small" on:click={() => moveFileUp(index)} disabled={index === 0}
+          <button class="btn-small" on:click|stopPropagation={() => moveFileUp(index)} disabled={index === 0}
             >↑</button
           >
           <button
             class="btn-small"
-            on:click={() => moveFileDown(index)}
+            on:click|stopPropagation={() => moveFileDown(index)}
             disabled={index === selectedFiles.length - 1}>↓</button
           >
-          <button class="btn-small btn-danger" on:click={() => removeFile(index)}>×</button>
+          <button class="btn-small btn-danger" on:click|stopPropagation={() => removeFile(index)}>×</button>
         </div>
       </div>
     {/each}
@@ -114,6 +113,10 @@
     border-bottom: 1px solid #f8f9fa;
     gap: 0.5rem;
     background: white;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+    user-select: none;
   }
 
   .selected-file-item:hover {
@@ -125,12 +128,16 @@
     border-color: #007bff;
   }
 
+  .selected-file-item:focus {
+    outline: 2px solid rgba(0, 123, 255, 0.25);
+    outline-offset: -2px;
+  }
+
   .file-info {
     display: flex;
     align-items: center;
     flex: 1;
     gap: 0.5rem;
-    cursor: pointer;
   }
 
   .file-info .file-name {

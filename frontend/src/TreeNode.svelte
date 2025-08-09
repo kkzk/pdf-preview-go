@@ -41,31 +41,29 @@
 </script>
 
 <div class="tree-node" style="padding-left: {depth * 20}px">
-  <div class="node-content" class:folder={node.isDir} class:file={!node.isDir}>
+  <div class="node-content" 
+       class:folder={node.isDir} 
+       class:file={!node.isDir}
+       class:clickable={node.isDir ? hasChildren : true}
+       on:click={node.isDir ? (hasChildren ? toggleExpanded : undefined) : toggleSelection}
+       on:keydown={e => e.key === 'Enter' && (node.isDir ? (hasChildren && toggleExpanded()) : toggleSelection())}
+       tabindex={node.isDir ? (hasChildren ? 0 : -1) : 0}
+       role="button">
     {#if node.isDir}
-      <button class="folder-toggle" on:click={toggleExpanded} disabled={!hasChildren}>
+      <button class="folder-toggle" on:click|stopPropagation={toggleExpanded} disabled={!hasChildren}>
         {getFileIcon(node)}
       </button>
-      <span
-        class="node-name folder-name"
-        class:disabled={!hasChildren}
-        on:click={hasChildren ? toggleExpanded : undefined}
-        on:keydown={e => e.key === 'Enter' && hasChildren && toggleExpanded()}
-        tabindex={hasChildren ? 0 : -1}
-        role="button"
-      >
+      <span class="node-name folder-name" class:disabled={!hasChildren}>
         {node.name}
       </span>
       {#if hasChildren}
         <span class="child-count">({node.children.length})</span>
       {/if}
     {:else}
-      <label class="file-label">
-        <input type="checkbox" checked={isSelected} on:change={toggleSelection} />
-        <span class="file-icon">{getFileIcon(node)}</span>
-        <span class="node-name">{node.name}</span>
-        <span class="file-size">{formatFileSize(node.size)}</span>
-      </label>
+      <input type="checkbox" checked={isSelected} on:change|stopPropagation={toggleSelection} />
+      <span class="file-icon">{getFileIcon(node)}</span>
+      <span class="node-name">{node.name}</span>
+      <span class="file-size">{formatFileSize(node.size)}</span>
     {/if}
   </div>
 
@@ -96,10 +94,26 @@
     padding: 0.4rem 0.5rem;
     gap: 0.5rem;
     min-height: 32px;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+  }
+
+  .node-content.clickable {
+    cursor: pointer;
+    user-select: none;
   }
 
   .node-content:hover {
     background: #f8f9fa;
+  }
+
+  .node-content.clickable:hover {
+    background: #e9ecef;
+  }
+
+  .node-content:focus {
+    outline: 2px solid rgba(0, 123, 255, 0.25);
+    outline-offset: -2px;
   }
 
   .folder-toggle {
@@ -125,14 +139,6 @@
     cursor: default;
   }
 
-  .file-label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    cursor: pointer;
-    flex: 1;
-  }
-
   .file-icon {
     font-size: 16px;
     width: 20px;
@@ -153,29 +159,7 @@
     color: #343a40;
   }
 
-  .folder-name {
-    cursor: pointer;
-    user-select: none;
-    transition: color 0.2s ease;
-    outline: none;
-  }
-
-  .folder-name:hover {
-    color: #007bff;
-  }
-
-  .folder-name:focus {
-    color: #0056b3;
-    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
-    border-radius: 2px;
-  }
-
   .folder-name.disabled {
-    cursor: default;
-    color: #6c757d;
-  }
-
-  .folder-name.disabled:hover {
     color: #6c757d;
   }
 
