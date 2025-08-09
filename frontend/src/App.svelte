@@ -1,5 +1,5 @@
 <script>
-  import {OpenDirectoryDialog, GetDirectoryContents, GetDirectoryTree, GetExcelSheets, ConvertToPDF, GetFileInfo, GetInitialDirectory, SetWindowTitle} from '../wailsjs/go/main/App.js'
+  import {OpenDirectoryDialog, GetDirectoryContents, GetDirectoryTree, GetExcelSheets, ConvertToPDF, GetFileInfo, GetInitialDirectory, SetWindowTitle, SetAutoUpdateEnabled, GetAutoUpdateEnabled} from '../wailsjs/go/main/App.js'
   import {onMount, onDestroy} from 'svelte'
   import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime.js'
   import TreeNode from './TreeNode.svelte'
@@ -14,15 +14,22 @@
   let pdfUrl = ''
   let logs = []
   let isConverting = false
+  let autoUpdateEnabled = true
 
   // UI state
   let leftPanelWidth = 300
   let rightPanelSplit = 70 // percentage for PDF viewer when log is expanded
   let expandedFolders = new Set() // Track which folders are expanded
   let isLogExpanded = false // Track log section state
+  let pdfViewerKey = 0 // Force PDF viewer reload
   
   // Dynamic panel split based on log state
   $: effectiveRightPanelSplit = isLogExpanded ? rightPanelSplit : 95
+  
+  // Force PDF viewer reload when URL changes
+  $: if (pdfUrl) {
+    pdfViewerKey++
+  }
   
   // Left panel section heights (percentages)
   let fileTreeHeight = 40
@@ -46,6 +53,9 @@
         await SetWindowTitle(initialDir)
         addLog(`作業ディレクトリを設定しました: ${initialDir}`)
       }
+      
+      // Get auto-update setting
+      autoUpdateEnabled = await GetAutoUpdateEnabled()
     } catch (error) {
       addLog(`作業ディレクトリ取得エラー: ${error}`)
     }
@@ -59,11 +69,35 @@
       await SetWindowTitle(newDir)
       addLog(`作業フォルダを変更しました: ${newDir}`)
     })
+
+    // Listen for file change events
+    EventsOn('file-changed', (data) => {
+      const fileName = data.file.split('\\').pop() || data.file.split('/').pop()
+      addLog(`ファイルが変更されました: ${fileName} - PDFを自動更新中...`)
+      // Force PDF viewer reload when file changes
+      pdfViewerKey++
+    })
+
+    // Listen for conversion events
+    EventsOn('conversion:error', (data) => {
+      addLog(`自動更新エラー: ${data.message}`)
+    })
+
+    // Listen for conversion progress events
+    EventsOn('conversion:progress', (status) => {
+      if (status.status === 'completed' && status.outputPath) {
+        pdfUrl = status.outputPath
+        addLog(`PDFが更新されました`)
+      }
+    })
   })
 
   onDestroy(() => {
     // Clean up event listeners
     EventsOff('directory-changed')
+    EventsOff('file-changed')
+    EventsOff('conversion:error')
+    EventsOff('conversion:progress')
   })
 
   async function loadFileTree() {
@@ -236,6 +270,18 @@
           logContainer.scrollTop = logContainer.scrollHeight
         }
       }, 100)
+    }
+  }
+
+  async function toggleAutoUpdate() {
+    autoUpdateEnabled = !autoUpdateEnabled
+    try {
+      await SetAutoUpdateEnabled(autoUpdateEnabled)
+      addLog(`自動更新を${autoUpdateEnabled ? '有効' : '無効'}にしました`)
+    } catch (error) {
+      addLog(`自動更新設定エラー: ${error}`)
+      // Revert on error
+      autoUpdateEnabled = !autoUpdateEnabled
     }
   }
 
@@ -412,6 +458,18 @@
           >
             {#if isConverting}変換中...{:else}📄 PDFに変換{/if}
           </button>
+          
+          <!-- Auto-update toggle -->
+          <div class="auto-update-section">
+            <label class="auto-update-checkbox">
+              <input 
+                type="checkbox" 
+                bind:checked={autoUpdateEnabled}
+                on:change={toggleAutoUpdate}
+              />
+              <span class="auto-update-label">ファイル変更時に自動更新</span>
+            </label>
+          </div>
         </div>
       </div>
     </div>
@@ -428,7 +486,9 @@
         </div>
         <div class="pdf-viewer-container">
           {#if pdfUrl}
-            <embed src={pdfUrl} type="application/pdf" class="pdf-viewer" />
+            {#key pdfViewerKey}
+              <embed src={pdfUrl} type="application/pdf" class="pdf-viewer" />
+            {/key}
           {:else}
             <div class="pdf-placeholder">
               <div>
@@ -790,6 +850,30 @@
     padding: 0.75rem;
     font-size: 14px;
     font-weight: 600;
+  }
+
+  /* Auto-update section */
+  .auto-update-section {
+    margin-top: 0.5rem;
+  }
+
+  .auto-update-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 12px;
+    color: #495057;
+    cursor: pointer;
+  }
+
+  .auto-update-checkbox input[type="checkbox"] {
+    accent-color: #007bff;
+    width: 14px;
+    height: 14px;
+  }
+
+  .auto-update-label {
+    user-select: none;
   }
 
   /* Right panel */

@@ -10,6 +10,10 @@ export function ConvertToPDF(arg1, arg2) {
   return window['go']['main']['App']['ConvertToPDF'](arg1, arg2);
 }
 
+export function GetAutoUpdateEnabled() {
+  return window['go']['main']['App']['GetAutoUpdateEnabled']();
+}
+
 export function GetDirectoryContents(arg1) {
   return window['go']['main']['App']['GetDirectoryContents'](arg1);
 }
@@ -30,6 +34,10 @@ export function GetInitialDirectory() {
   return window['go']['main']['App']['GetInitialDirectory']();
 }
 
+export function GetWatchStatus() {
+  return window['go']['main']['App']['GetWatchStatus']();
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
@@ -42,6 +50,14 @@ export function OpenFileDialog() {
   return window['go']['main']['App']['OpenFileDialog']();
 }
 
+export function SetAutoUpdateEnabled(arg1) {
+  return window['go']['main']['App']['SetAutoUpdateEnabled'](arg1);
+}
+
 export function SetWindowTitle(arg1) {
   return window['go']['main']['App']['SetWindowTitle'](arg1);
+}
+
+export function StartWatchingDirectory(arg1) {
+  return window['go']['main']['App']['StartWatchingDirectory'](arg1);
 }

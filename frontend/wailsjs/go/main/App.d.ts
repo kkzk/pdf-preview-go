@@ -6,6 +6,8 @@ export function ChangeWorkingDirectory():Promise<string>;
 
 export function ConvertToPDF(arg1:Array<string>,arg2:Record<string, Array<string>>):Promise<string>;
 
+export function GetAutoUpdateEnabled():Promise<boolean>;
+
 export function GetDirectoryContents(arg1:string):Promise<Array<main.FileInfo>>;
 
 export function GetDirectoryTree(arg1:string):Promise<Array<main.FileInfo>>;
@@ -16,10 +18,16 @@ export function GetFileInfo(arg1:string):Promise<Record<string, any>>;
 
 export function GetInitialDirectory():Promise<string>;
 
+export function GetWatchStatus():Promise<Record<string, any>>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function OpenDirectoryDialog():Promise<string>;
 
 export function OpenFileDialog():Promise<string>;
 
+export function SetAutoUpdateEnabled(arg1:boolean):Promise<void>;
+
 export function SetWindowTitle(arg1:string):Promise<void>;
+
+export function StartWatchingDirectory(arg1:string):Promise<void>;

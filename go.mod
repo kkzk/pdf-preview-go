@@ -5,6 +5,7 @@ go 1.23.0
 toolchain go1.24.4
 
 require (
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-ole/go-ole v1.3.0
 	github.com/pdfcpu/pdfcpu v0.11.0
 	github.com/tealeg/xlsx/v3 v3.3.13
