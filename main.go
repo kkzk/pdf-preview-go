@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 
 	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/menu"
+	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 )
@@ -50,6 +52,17 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp(initialDir)
 
+	// Create application menu
+	appMenu := menu.NewMenu()
+	fileMenu := appMenu.AddSubmenu("ファイル")
+	fileMenu.AddText("フォルダを選択", keys.CmdOrCtrl("o"), func(_ *menu.CallbackData) {
+		app.ChangeWorkingDirectory()
+	})
+	fileMenu.AddSeparator()
+	fileMenu.AddText("終了", keys.CmdOrCtrl("q"), func(_ *menu.CallbackData) {
+		// App will quit automatically
+	})
+
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:  "pdf-preview-go",
@@ -58,6 +71,7 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
+		Menu:             appMenu,
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
 		Bind: []interface{}{

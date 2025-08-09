@@ -100,6 +100,22 @@ func (a *App) OpenDirectoryDialog() (string, error) {
 	return dir, err
 }
 
+// ChangeWorkingDirectory changes the current working directory and emits event
+func (a *App) ChangeWorkingDirectory() (string, error) {
+	dir, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "作業フォルダを選択",
+	})
+	if err != nil {
+		return "", err
+	}
+	if dir != "" {
+		// Emit event to notify frontend
+		runtime.EventsEmit(a.ctx, "directory-changed", dir)
+		return dir, nil
+	}
+	return "", nil
+}
+
 // GetDirectoryContents returns file tree structure for a given directory
 func (a *App) GetDirectoryContents(dirPath string) ([]FileInfo, error) {
 	if dirPath == "" {

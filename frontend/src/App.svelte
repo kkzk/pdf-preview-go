@@ -1,6 +1,7 @@
 <script>
   import {Greet, OpenDirectoryDialog, GetDirectoryContents, GetDirectoryTree, GetExcelSheets, ConvertToPDF, GetFileInfo, GetInitialDirectory} from '../wailsjs/go/main/App.js'
-  import {onMount} from 'svelte'
+  import {onMount, onDestroy} from 'svelte'
+  import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime.js'
   import TreeNode from './TreeNode.svelte'
 
   // Development test variables
@@ -36,22 +37,24 @@
     } catch (error) {
       addLog(`初期ディレクトリ取得エラー: ${error}`)
     }
+
+    // Listen for directory change events from menu
+    EventsOn('directory-changed', async (newDir) => {
+      rootDirectory = newDir
+      expandedFolders.clear()
+      expandedFolders = new Set()
+      await loadFileTree()
+      addLog(`フォルダを変更しました: ${newDir}`)
+    })
+  })
+
+  onDestroy(() => {
+    // Clean up event listeners
+    EventsOff('directory-changed')
   })
 
   function greet() {
     Greet(name).then(result => resultText = result)
-  }
-
-  async function selectRootDirectory() {
-    try {
-      const dir = await OpenDirectoryDialog()
-      if (dir) {
-        rootDirectory = dir
-        await loadFileTree()
-      }
-    } catch (error) {
-      addLog(`フォルダ選択エラー: ${error}`)
-    }
   }
 
   async function loadFileTree() {
@@ -245,18 +248,15 @@
   <div class="app-container">
     <!-- Left Panel -->
     <div class="left-panel" style="width: {leftPanelWidth}px;">
-      <!-- Directory Selection -->
-      <div class="panel-section">
-        <h3>フォルダ選択</h3>
-        <button class="btn-primary" on:click={selectRootDirectory}>
-          📁 フォルダを選択
-        </button>
-        {#if rootDirectory}
+      <!-- Current Directory Display -->
+      {#if rootDirectory}
+        <div class="panel-section">
+          <h3>現在のフォルダ</h3>
           <div class="directory-info">
             <small>{rootDirectory}</small>
           </div>
-        {/if}
-      </div>
+        </div>
+      {/if}
 
       <!-- File Tree -->
       <div class="panel-section file-tree-section">
