@@ -111,7 +111,7 @@
     height: 24px;
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     border-radius: 4px;
   }
   
@@ -136,7 +136,7 @@
     font-size: 16px;
     width: 20px;
     display: flex;
-    justify-content: center;
+    justify-content: flex-start;
   }
   
   .node-name {
@@ -144,6 +144,7 @@
     font-size: 13px;
     color: #495057;
     word-break: break-all;
+    text-align: left;
   }
   
   .folder .node-name {
@@ -163,7 +164,6 @@
     font-size: 11px;
     color: #6c757d;
     min-width: 60px;
-    text-align: right;
   }
   
   .children {
