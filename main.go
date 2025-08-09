@@ -18,29 +18,32 @@ var assets embed.FS
 
 func main() {
 	// Parse command line arguments
-	var testDir string
-	flag.StringVar(&testDir, "test", "", "Use specified test directory")
 	flag.Parse()
 
-	// If test directory is specified, use it; otherwise use current directory
+	// Get the directory from positional arguments
 	var initialDir string
-	if testDir != "" {
+	args := flag.Args()
+
+	if len(args) > 0 {
+		// Use the first positional argument as the directory
+		targetDir := args[0]
+
 		// Convert to absolute path
-		absTestDir, err := filepath.Abs(testDir)
+		absDir, err := filepath.Abs(targetDir)
 		if err != nil {
-			println("Error resolving test directory path:", err.Error())
+			println("Error resolving directory path:", err.Error())
 			os.Exit(1)
 		}
 
 		// Check if directory exists
-		if _, err := os.Stat(absTestDir); os.IsNotExist(err) {
-			println("Test directory does not exist:", absTestDir)
+		if _, err := os.Stat(absDir); os.IsNotExist(err) {
+			println("Directory does not exist:", absDir)
 			os.Exit(1)
 		}
 
-		initialDir = absTestDir
+		initialDir = absDir
 	} else {
-		// Use current working directory
+		// Use current working directory if no argument provided
 		cwd, err := os.Getwd()
 		if err != nil {
 			println("Error getting current directory:", err.Error())

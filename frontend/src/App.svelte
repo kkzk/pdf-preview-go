@@ -44,10 +44,10 @@
         rootDirectory = initialDir
         await loadFileTree()
         await SetWindowTitle(initialDir)
-        addLog(`初期ディレクトリを設定しました: ${initialDir}`)
+        addLog(`作業ディレクトリを設定しました: ${initialDir}`)
       }
     } catch (error) {
-      addLog(`初期ディレクトリ取得エラー: ${error}`)
+      addLog(`作業ディレクトリ取得エラー: ${error}`)
     }
 
     // Listen for directory change events from menu
@@ -57,7 +57,7 @@
       expandedFolders = new Set()
       await loadFileTree()
       await SetWindowTitle(newDir)
-      addLog(`フォルダを変更しました: ${newDir}`)
+      addLog(`作業フォルダを変更しました: ${newDir}`)
     })
   })
 
