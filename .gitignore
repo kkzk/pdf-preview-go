@@ -83,3 +83,4 @@ wails.json.bak
 # Application specific cache/data
 cache/
 *.json.bak
+test.pdf
