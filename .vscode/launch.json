@@ -1,0 +1,52 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Wails: Debug pdf-preview-go",
+            "type": "go",
+            "request": "launch",
+            "mode": "exec",
+            "program": "${workspaceFolder}/build/bin/pdf-preview-go.exe",
+            "preLaunchTask": "build",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "./test"
+            ],
+            "env": {}
+        },
+        {
+            "name": "Debug PDF Preview Go (Source)",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}",
+            "args": [
+                "./test"
+            ],
+            "env": {},
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Debug PDF Preview Go (Custom Dir)",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}",
+            "args": [
+                "${input:customDirectory}"
+            ],
+            "env": {},
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "customDirectory",
+            "description": "Enter directory path to open",
+            "default": "./test",
+            "type": "promptString"
+        }
+    ]
+}
