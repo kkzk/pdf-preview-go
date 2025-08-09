@@ -21,3 +21,5 @@ export function Greet(arg1:string):Promise<string>;
 export function OpenDirectoryDialog():Promise<string>;
 
 export function OpenFileDialog():Promise<string>;
+
+export function SetWindowTitle(arg1:string):Promise<void>;

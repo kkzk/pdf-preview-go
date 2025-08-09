@@ -60,6 +60,11 @@ func NewApp(initialDir string) *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
+	// Set initial window title
+	if a.initialDir != "" {
+		a.SetWindowTitle(a.initialDir)
+	}
+
 	// Clean up old cache files (older than 2 days)
 	go func() {
 		if err := a.converter.CleanupCache(48 * time.Hour); err != nil {
@@ -109,11 +114,24 @@ func (a *App) ChangeWorkingDirectory() (string, error) {
 		return "", err
 	}
 	if dir != "" {
+		// Update window title with new directory
+		runtime.WindowSetTitle(a.ctx, fmt.Sprintf("PDF Preview - %s", filepath.Base(dir)))
+		
 		// Emit event to notify frontend
 		runtime.EventsEmit(a.ctx, "directory-changed", dir)
 		return dir, nil
 	}
 	return "", nil
+}
+
+// SetWindowTitle updates the window title with current directory
+func (a *App) SetWindowTitle(dirPath string) {
+	if dirPath != "" {
+		title := fmt.Sprintf("PDF Preview - %s", filepath.Base(dirPath))
+		runtime.WindowSetTitle(a.ctx, title)
+	} else {
+		runtime.WindowSetTitle(a.ctx, "PDF Preview")
+	}
 }
 
 // GetDirectoryContents returns file tree structure for a given directory

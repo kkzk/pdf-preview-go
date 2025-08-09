@@ -41,3 +41,7 @@ export function OpenDirectoryDialog() {
 export function OpenFileDialog() {
   return window['go']['main']['App']['OpenFileDialog']();
 }
+
+export function SetWindowTitle(arg1) {
+  return window['go']['main']['App']['SetWindowTitle'](arg1);
+}

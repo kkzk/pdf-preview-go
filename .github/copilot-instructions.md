@@ -14,6 +14,7 @@
 - **ビルド**: `wails build`（配布用バイナリ作成）
 - **依存インストール**: `Set-Location frontend; npm install`
 - **JSバインディング生成**: `wails generate module`（GoメソッドをJS化）
+- **テスト時のアプリケーション起動**: `./pdf-preview-go.exe test` （ test ディレクトリを指定して起動）
 
 ## PowerShell環境での注意点
 - **コマンド実行**: PowerShellでは `cd` の代わりに `Set-Location` を使用
@@ -36,7 +37,7 @@
 ## 注意点
 - WailsのバージョンやSvelte/Viteのバージョンに依存する部分があるため、`package.json`や`wails.json`の内容を参照すること。
 - GoとSvelte間のデータ受け渡しはシンプルな型（string, number, object）を推奨。
-- Pythonサブプロジェクト（`pdf_preview/`）は本体とは独立しているため、参照のみで変更してはいけない。
+- Pythonサブプロジェクト（`pdf_preview`）は本体とは独立しているため、参照のみで変更してはいけない。
 
 - `main_window.py` および `saveAsPdf.py` の機能を理解すること。この機能をgo言語で実装するのが目的です。
 

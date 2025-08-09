@@ -1,5 +1,5 @@
 <script>
-  import {Greet, OpenDirectoryDialog, GetDirectoryContents, GetDirectoryTree, GetExcelSheets, ConvertToPDF, GetFileInfo, GetInitialDirectory} from '../wailsjs/go/main/App.js'
+  import {Greet, OpenDirectoryDialog, GetDirectoryContents, GetDirectoryTree, GetExcelSheets, ConvertToPDF, GetFileInfo, GetInitialDirectory, SetWindowTitle} from '../wailsjs/go/main/App.js'
   import {onMount, onDestroy} from 'svelte'
   import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime.js'
   import TreeNode from './TreeNode.svelte'
@@ -32,6 +32,7 @@
       if (initialDir) {
         rootDirectory = initialDir
         await loadFileTree()
+        await SetWindowTitle(initialDir)
         addLog(`初期ディレクトリを設定しました: ${initialDir}`)
       }
     } catch (error) {
@@ -44,6 +45,7 @@
       expandedFolders.clear()
       expandedFolders = new Set()
       await loadFileTree()
+      await SetWindowTitle(newDir)
       addLog(`フォルダを変更しました: ${newDir}`)
     })
   })
@@ -248,16 +250,6 @@
   <div class="app-container">
     <!-- Left Panel -->
     <div class="left-panel" style="width: {leftPanelWidth}px;">
-      <!-- Current Directory Display -->
-      {#if rootDirectory}
-        <div class="panel-section">
-          <h3>現在のフォルダ</h3>
-          <div class="directory-info">
-            <small>{rootDirectory}</small>
-          </div>
-        </div>
-      {/if}
-
       <!-- File Tree -->
       <div class="panel-section file-tree-section">
         <h3>ファイル一覧</h3>
@@ -451,15 +443,6 @@
     font-size: 14px;
     font-weight: 600;
     color: #495057;
-  }
-
-  .directory-info {
-    margin-top: 0.5rem;
-    padding: 0.5rem;
-    background: white;
-    border-radius: 4px;
-    border: 1px solid #dee2e6;
-    word-break: break-all;
   }
 
   /* File tree */
