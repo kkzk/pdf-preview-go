@@ -14,7 +14,11 @@
     ShowSaveDialog,
   } from '../wailsjs/go/main/App.js'
   import { EventsOff, EventsOn } from '../wailsjs/runtime/runtime.js'
-  import TreeNode from './TreeNode.svelte'
+  import FileTreePanel from './components/FileTreePanel.svelte'
+  import LogPanel from './components/LogPanel.svelte'
+  import PdfViewer from './components/PdfViewer.svelte'
+  import SelectedFilesPanel from './components/SelectedFilesPanel.svelte'
+  import SheetsPanel from './components/SheetsPanel.svelte'
 
   // Main application state
   let rootDirectory = ''
@@ -22,7 +26,7 @@
   let selectedFiles = []
   let currentFile = null
   let excelSheets = []
-  let sheetSelections = {}
+  let sheetSelections = /** @type {Record<string, string[]>} */ ({})
   let pdfUrl = ''
   let logs = []
   let isConverting = false
@@ -38,7 +42,8 @@
   let pdfViewerKey = 0 // Force PDF viewer reload
 
   // Dynamic panel split based on log state
-  $: effectiveRightPanelSplit = isLogExpanded ? rightPanelSplit : 95
+  // Reactive statements
+  $: effectiveRightPanelSplit = isLogExpanded ? rightPanelSplit : 95 // ログ折りたたみ時はPDF表示を95%に
 
   // Force PDF viewer reload when URL changes
   $: if (pdfUrl) {
@@ -215,42 +220,44 @@
     addLog(`${currentFile.name}の選択シート: [${sheetSelections[filePath].join(', ')}]`)
   }
 
-  function isSheetSelected(sheetName) {
-    if (!currentFile) return false
-    const selections = sheetSelections[currentFile.path] || []
-    return selections.includes(sheetName)
-  }
-
-  function moveFileUp(index) {
-    if (index > 0) {
-      const temp = selectedFiles[index]
-      selectedFiles[index] = selectedFiles[index - 1]
-      selectedFiles[index - 1] = temp
-      selectedFiles = [...selectedFiles]
-      addLog('ファイル順序を変更しました')
+  function selectFileFromList(file) {
+    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xlsm')) {
+      loadExcelSheets(file)
     }
   }
 
-  function moveFileDown(index) {
-    if (index < selectedFiles.length - 1) {
-      const temp = selectedFiles[index]
-      selectedFiles[index] = selectedFiles[index + 1]
-      selectedFiles[index + 1] = temp
-      selectedFiles = [...selectedFiles]
-      addLog('ファイル順序を変更しました')
-    }
+  // Event handlers for SelectedFilesPanel
+  function handleSelectFile(event) {
+    selectFileFromList(event.detail)
   }
 
-  function removeFile(index) {
+  function handleMoveFile(event) {
+    const { from, to } = event.detail
+    const temp = selectedFiles[from]
+    selectedFiles[from] = selectedFiles[to]
+    selectedFiles[to] = temp
+    selectedFiles = [...selectedFiles]
+    addLog('ファイル順序を変更しました')
+  }
+
+  function handleRemoveFile(event) {
+    const index = event.detail
     const removed = selectedFiles.splice(index, 1)[0]
     selectedFiles = [...selectedFiles]
     addLog(`ファイルを削除しました: ${removed.name}`)
   }
 
-  function selectFileFromList(file) {
-    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xlsm')) {
-      loadExcelSheets(file)
-    }
+  // Event handlers for SheetsPanel
+  function handleToggleSheet(event) {
+    toggleSheetSelection(event.detail)
+  }
+
+  function handleConvertPDF() {
+    convertToPDF()
+  }
+
+  function handleToggleAutoUpdate() {
+    toggleAutoUpdate()
   }
 
   async function convertToPDF() {
@@ -341,16 +348,6 @@
     const timestamp = new Date().toLocaleTimeString()
     logs.push(`${timestamp}: ${message}`)
     logs = [...logs]
-
-    // Scroll to bottom of logs if expanded
-    if (isLogExpanded) {
-      setTimeout(() => {
-        const logContainer = document.querySelector('.log-container')
-        if (logContainer) {
-          logContainer.scrollTop = logContainer.scrollHeight
-        }
-      }, 100)
-    }
   }
 
   async function toggleAutoUpdate() {
@@ -455,20 +452,13 @@
     <div class="left-panel" style="width: {leftPanelWidth}px;">
       <!-- File Tree -->
       <div class="panel-section file-tree-section" style="height: {fileTreeHeight}%;">
-        <div class="section-header-compact">
-          <h3>ファイル一覧</h3>
-        </div>
-        <div class="file-tree">
-          {#each fileTree as rootNode}
-            <TreeNode
-              node={rootNode}
-              {selectedFiles}
-              {expandedFolders}
-              on:toggle-folder={handleToggleFolder}
-              on:toggle-selection={handleToggleSelection}
-            />
-          {/each}
-        </div>
+        <FileTreePanel
+          {fileTree}
+          {selectedFiles}
+          {expandedFolders}
+          on:toggle-folder={handleToggleFolder}
+          on:toggle-selection={handleToggleSelection}
+        />
       </div>
 
       <!-- Resize Handle for File Tree -->
@@ -476,42 +466,13 @@
 
       <!-- Selected Files List -->
       <div class="panel-section selected-files-section" style="height: {selectedFilesHeight}%;">
-        <div class="section-header-compact">
-          <h3>選択ファイル</h3>
-          <span class="count-badge">({selectedFiles.length})</span>
-        </div>
-        <div class="selected-files">
-          {#each selectedFiles as file, index}
-            <div
-              class="selected-file-item"
-              class:active={currentFile && currentFile.path === file.path}
-            >
-              <div
-                class="file-info"
-                on:click={() => selectFileFromList(file)}
-                on:keydown={e => e.key === 'Enter' && selectFileFromList(file)}
-                tabindex="0"
-                role="button"
-              >
-                <span class="file-icon">
-                  {#if file.name.includes('.xls')}📊{:else if file.name.endsWith('.pdf')}📄{:else}📝{/if}
-                </span>
-                <span class="file-name">{file.name}</span>
-              </div>
-              <div class="file-controls">
-                <button class="btn-small" on:click={() => moveFileUp(index)} disabled={index === 0}
-                  >↑</button
-                >
-                <button
-                  class="btn-small"
-                  on:click={() => moveFileDown(index)}
-                  disabled={index === selectedFiles.length - 1}>↓</button
-                >
-                <button class="btn-small btn-danger" on:click={() => removeFile(index)}>×</button>
-              </div>
-            </div>
-          {/each}
-        </div>
+        <SelectedFilesPanel
+          {selectedFiles}
+          {currentFile}
+          on:select-file={handleSelectFile}
+          on:move-file={handleMoveFile}
+          on:remove-file={handleRemoveFile}
+        />
       </div>
 
       <!-- Resize Handle for Selected Files -->
@@ -520,55 +481,17 @@
       <!-- Excel Sheets -->
       <!-- Excel Sheets -->
       <div class="panel-section sheets-section" style="height: {sheetsHeight}%;">
-        <div class="section-header-compact">
-          <h3>シート選択</h3>
-          {#if currentFile}
-            <span class="file-badge">{currentFile.name}</span>
-          {/if}
-        </div>
-        <div class="sheets-content">
-          {#if currentFile && excelSheets.length > 0}
-            <div class="sheets-list">
-              {#each excelSheets as sheet}
-                <label class="sheet-checkbox" class:disabled={!sheet.visible}>
-                  <input
-                    type="checkbox"
-                    disabled={!sheet.visible}
-                    checked={isSheetSelected(sheet.name)}
-                    on:change={() => toggleSheetSelection(sheet.name)}
-                  />
-                  <span class="sheet-name">{sheet.name}</span>
-                  {#if !sheet.visible}<span class="sheet-hidden">(非表示)</span>{/if}
-                </label>
-              {/each}
-            </div>
-          {:else}
-            <div class="no-sheets">Excelファイルを選択してください</div>
-          {/if}
-        </div>
-
-        <!-- Convert Button -->
-        <div class="convert-section">
-          <button
-            class="btn-primary btn-large"
-            on:click={convertToPDF}
-            disabled={selectedFiles.length === 0 || isConverting}
-          >
-            {#if isConverting}変換中...{:else}📄 PDFに変換{/if}
-          </button>
-
-          <!-- Auto-update toggle -->
-          <div class="auto-update-section">
-            <label class="auto-update-checkbox">
-              <input
-                type="checkbox"
-                bind:checked={autoUpdateEnabled}
-                on:change={toggleAutoUpdate}
-              />
-              <span class="auto-update-label">ファイル変更時に自動更新</span>
-            </label>
-          </div>
-        </div>
+        <SheetsPanel
+          {currentFile}
+          {excelSheets}
+          {sheetSelections}
+          {selectedFiles}
+          {isConverting}
+          {autoUpdateEnabled}
+          on:toggle-sheet={handleToggleSheet}
+          on:convert-pdf={handleConvertPDF}
+          on:toggle-auto-update={handleToggleAutoUpdate}
+        />
       </div>
     </div>
 
@@ -578,41 +501,8 @@
     <!-- Right Panel -->
     <div class="right-panel">
       <!-- PDF Viewer -->
-      <div class="pdf-viewer-section" style="height: {effectiveRightPanelSplit}%;">
-        <div class="section-header pdf-header">
-          <div class="pdf-title">
-            <h3>PDFプレビュー</h3>
-            {#if hasUnsavedChanges}
-              <span class="unsaved-indicator">●未保存</span>
-            {/if}
-          </div>
-          {#if pdfUrl}
-            <div class="pdf-actions">
-              <button
-                class="btn-save"
-                on:click={() =>
-                  saveCurrentPdf().catch(error => console.error('Button save error:', error))}
-                title="PDFファイルを保存"
-              >
-                💾 保存
-              </button>
-            </div>
-          {/if}
-        </div>
-        <div class="pdf-viewer-container">
-          {#if pdfUrl}
-            {#key pdfViewerKey}
-              <embed src={pdfUrl} type="application/pdf" class="pdf-viewer" />
-            {/key}
-          {:else}
-            <div class="pdf-placeholder">
-              <div>
-                <h3>PDFが生成されるとここに表示されます</h3>
-                <p>左側でファイルを選択してPDFに変換してください</p>
-              </div>
-            </div>
-          {/if}
-        </div>
+      <div class="pdf-viewer-container">
+        <PdfViewer {pdfUrl} {pdfViewerKey} {hasUnsavedChanges} on:save-pdf={saveCurrentPdf} />
       </div>
 
       <!-- Resize Handle for Right Panel -->
@@ -621,31 +511,7 @@
       {/if}
 
       <!-- Log Console -->
-      <div class="log-section" style="height: {100 - effectiveRightPanelSplit}%;">
-        <div
-          class="section-header clickable"
-          on:click={() => (isLogExpanded = !isLogExpanded)}
-          on:keydown={e => e.key === 'Enter' && (isLogExpanded = !isLogExpanded)}
-          tabindex="0"
-          role="button"
-        >
-          <h3>ログ</h3>
-          <span class="toggle-icon">{isLogExpanded ? '▼' : '▶'}</span>
-        </div>
-        {#if isLogExpanded}
-          <div class="log-container">
-            {#each logs as log}
-              <div class="log-entry">{log}</div>
-            {/each}
-          </div>
-        {:else}
-          <div class="log-collapsed">
-            <div class="log-summary">
-              {logs.length > 0 ? `最新: ${logs[logs.length - 1]}` : 'ログなし'}
-            </div>
-          </div>
-        {/if}
-      </div>
+      <LogPanel {logs} bind:isLogExpanded {effectiveRightPanelSplit} />
     </div>
   </div>
 </main>
@@ -701,77 +567,14 @@
     position: relative;
   }
 
-  .panel-section h3 {
-    margin: 0 0 0.25rem 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: #495057;
-    flex-shrink: 0;
-  }
-
-  .section-header-compact {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.25rem;
-    flex-shrink: 0;
-  }
-
-  .section-header-compact h3 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: #495057;
-  }
-
-  .count-badge {
-    background: #007bff;
-    color: white;
-    font-size: 11px;
-    padding: 0.125rem 0.375rem;
-    border-radius: 10px;
-    font-weight: 500;
-  }
-
-  .file-badge {
-    background: #28a745;
-    color: white;
-    font-size: 10px;
-    padding: 0.125rem 0.375rem;
-    border-radius: 8px;
-    font-weight: 500;
-    max-width: 150px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   /* File tree */
   .file-tree-section {
     min-height: 150px;
   }
 
-  .file-tree {
-    flex: 1;
-    overflow-y: auto;
-    border: 1px solid #dee2e6;
-    border-radius: 4px;
-    background: white;
-    min-height: 0;
-  }
-
   /* Selected files */
   .selected-files-section {
     min-height: 100px;
-  }
-
-  .selected-files {
-    flex: 1;
-    overflow-y: auto;
-    border: 1px solid #dee2e6;
-    border-radius: 4px;
-    background: white;
-    min-height: 0;
   }
 
   /* Resize handles */
@@ -804,195 +607,6 @@
     min-height: 80px;
   }
 
-  .sheets-content {
-    flex: 1;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .sheets-list {
-    flex: 1;
-    overflow-y: auto;
-    border: 1px solid #dee2e6;
-    border-radius: 4px;
-    background: white;
-    min-height: 0;
-  }
-
-  .convert-section {
-    margin-top: auto;
-    padding-top: 0.25rem;
-    flex-shrink: 0;
-  }
-
-  .selected-file-item {
-    display: flex;
-    align-items: center;
-    padding: 0.5rem;
-    border-bottom: 1px solid #f8f9fa;
-    gap: 0.5rem;
-    background: white;
-  }
-
-  .selected-file-item:hover {
-    background: #f8f9fa;
-  }
-
-  .selected-file-item.active {
-    background: #e7f3ff;
-    border-color: #007bff;
-  }
-
-  .file-info {
-    display: flex;
-    align-items: center;
-    flex: 1;
-    gap: 0.5rem;
-    cursor: pointer;
-  }
-
-  .file-info .file-name {
-    font-size: 12px;
-    color: #495057;
-  }
-
-  .file-controls {
-    display: flex;
-    gap: 0.25rem;
-  }
-
-  .btn-small {
-    padding: 0.25rem;
-    font-size: 10px;
-    border: 1px solid #ddd;
-    background: white;
-    color: #495057;
-    border-radius: 2px;
-    cursor: pointer;
-    min-width: 20px;
-  }
-
-  .btn-small:hover:not(:disabled) {
-    background: #f8f9fa;
-    color: #212529;
-  }
-
-  .btn-small:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-danger {
-    background: #dc3545;
-    color: white;
-    border-color: #dc3545;
-  }
-
-  .btn-danger:hover {
-    background: #c82333;
-  }
-
-  .sheet-checkbox {
-    display: flex;
-    align-items: center;
-    padding: 0.5rem;
-    cursor: pointer;
-    gap: 0.5rem;
-    border-bottom: 1px solid #f8f9fa;
-    background: white;
-  }
-
-  .sheet-checkbox:hover:not(.disabled) {
-    background: #f8f9fa;
-  }
-
-  .sheet-checkbox.disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    background: #f8f9fa;
-  }
-
-  .sheet-name {
-    font-size: 12px;
-    color: #495057;
-  }
-
-  .sheet-hidden {
-    font-size: 11px;
-    color: #6c757d;
-  }
-
-  .no-sheets {
-    padding: 1rem;
-    text-align: center;
-    color: #6c757d;
-    font-size: 12px;
-    background: white;
-  }
-
-  /* Input elements styling */
-  input[type='checkbox'] {
-    margin-right: 0.5rem;
-    accent-color: #007bff;
-  }
-
-  /* Text color improvements */
-  label {
-    color: #495057;
-  }
-
-  /* Buttons */
-  .btn-primary {
-    padding: 0.5rem 1rem;
-    background: #007bff;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-  }
-
-  .btn-primary:hover:not(:disabled) {
-    background: #0056b3;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-large {
-    width: 100%;
-    padding: 0.75rem;
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  /* Auto-update section */
-  .auto-update-section {
-    margin-top: 0.5rem;
-  }
-
-  .auto-update-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 12px;
-    color: #495057;
-    cursor: pointer;
-  }
-
-  .auto-update-checkbox input[type='checkbox'] {
-    accent-color: #007bff;
-    width: 14px;
-    height: 14px;
-  }
-
-  .auto-update-label {
-    user-select: none;
-  }
-
   /* Right panel */
   .right-panel {
     flex: 1;
@@ -1001,173 +615,13 @@
     overflow: hidden;
   }
 
-  .section-header {
-    padding: 0.5rem 1rem;
-    background: #f8f9fa;
-    border-bottom: 1px solid #dee2e6;
-    flex-shrink: 0;
-  }
-
-  .section-header.clickable {
-    cursor: pointer;
-    user-select: none;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    outline: none;
-  }
-
-  .section-header.clickable:hover {
-    background: #e9ecef;
-  }
-
-  .section-header.clickable:focus {
-    background: #e9ecef;
-    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
-  }
-
-  .toggle-icon {
-    font-size: 12px;
-    color: #6c757d;
-    transition: transform 0.2s ease;
-  }
-
-  .section-header h3 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: #495057;
-  }
-
-  /* PDF header with save functionality */
-  .pdf-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .pdf-title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .unsaved-indicator {
-    color: #dc3545;
-    font-size: 12px;
-    font-weight: 500;
-  }
-
-  .pdf-actions {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .btn-save {
-    background: #28a745;
-    color: white;
-    border: none;
-    padding: 0.375rem 0.75rem;
-    border-radius: 4px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background-color 0.15s ease-in-out;
-  }
-
-  .btn-save:hover {
-    background: #218838;
-  }
-
-  .btn-save:active {
-    background: #1e7e34;
-  }
-
-  /* PDF viewer */
-  .pdf-viewer-section {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
+  /* PDF Viewer container - takes all available space */
   .pdf-viewer-container {
     flex: 1;
-    overflow: hidden;
-    background: #525659;
-    position: relative;
-    min-height: 0;
-  }
-
-  .pdf-viewer {
-    width: 100%;
-    height: 100%;
-    border: none;
-  }
-
-  .pdf-placeholder {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    background: white;
-    color: #666;
-    text-align: center;
-  }
-
-  .pdf-placeholder h3 {
-    margin: 0 0 1rem 0;
-    color: #495057;
-  }
-
-  .pdf-placeholder p {
-    margin: 0;
-    color: #6c757d;
-  }
-
-  /* Log section */
-  .log-section {
     display: flex;
     flex-direction: column;
-  }
-
-  .log-container {
-    flex: 1;
-    overflow-y: auto;
-    padding: 0.5rem;
-    background: #f8f9fa;
-    color: #495057;
-    font-family: 'Consolas', 'Monaco', monospace;
-    font-size: 11px;
-    line-height: 1.4;
-    text-align: left;
-  }
-
-  .log-entry {
-    margin-bottom: 0.25rem;
-    word-break: break-word;
-    padding: 0.125rem 0;
-  }
-
-  .log-collapsed {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    padding: 0.25rem 1rem;
-    background: #f8f9fa;
-    border-top: 1px solid #dee2e6;
-    min-height: 0;
-  }
-
-  .log-summary {
-    color: #6c757d;
-    font-size: 11px;
-    font-style: italic;
-    text-align: left;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 100%;
-    line-height: 1.2;
+    background-color: red;
   }
 
   /* Responsive design */
