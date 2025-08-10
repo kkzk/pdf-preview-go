@@ -14,8 +14,8 @@ env:
 
 jobs:
 
-  # バックエンド・フロントエンド統合品質チェック
-  quality-check:
+  # 品質チェック・ビルドテスト統合ジョブ
+  build-and-test:
     runs-on: windows-latest
     steps:
     - name: Checkout
@@ -40,9 +40,6 @@ jobs:
     - name: Install Wails
       run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
-    - name: Wails build (for embed check)
-      run: wails build -platform windows/amd64 -devtools
-
     # --- Go品質チェック ---
     - name: Run go fmt
       shell: pwsh
@@ -54,9 +51,6 @@ jobs:
           exit 1
         }
 
-    - name: Run go vet
-      run: go vet .
-
     - name: Run go mod tidy check
       shell: bash
       run: |
@@ -67,34 +61,13 @@ jobs:
           exit 1
         fi
 
-  # Windowsビルドテスト
-  build-test:
-    runs-on: windows-latest
-    needs: [quality-check]
-    
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Setup Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.23'
-        cache: true
-
-    - name: Setup Node
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        cache: 'npm'
-        cache-dependency-path: frontend/package.json
-
-    - name: Install Wails
-      run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
-
-    # Windows開発用ビルドテスト（NSISインストーラーは作成しない）
+    # --- ビルドテスト ---
     - name: Test Build (Windows Dev Mode)
       run: wails build -platform windows/amd64 -devtools
+
+    # --- Go品質チェック / embed 指定があるためビルド後に実施する ---
+    - name: Run go vet
+      run: go vet .
 
     # ビルドされたファイルが存在することを確認
     - name: Verify build artifacts
