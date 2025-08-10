@@ -390,7 +390,9 @@
     }
   }
 
-  function selectFileFromList(file) {
+  // Event handlers for SelectedFilesPanel
+  function handleSelectFile(event) {
+    const file = event.detail
     currentFile = file
 
     if (isExcelFile(file.name)) {
@@ -402,11 +404,6 @@
 
     // Debounced session save
     debouncedSaveSession()
-  }
-
-  // Event handlers for SelectedFilesPanel
-  function handleSelectFile(event) {
-    selectFileFromList(event.detail)
   }
 
   function handleMoveFile(event) {
@@ -471,7 +468,6 @@
         }
       }
 
-      addLog(`最終的なシート選択情報: ${JSON.stringify(validSheetSelections)}`)
       const result = await ConvertToPDF(filePaths, validSheetSelections)
       pdfUrl = result
       addLog(`PDF変換が完了しました: ${result}`)
@@ -936,7 +932,6 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background-color: red;
   }
 
   /* Responsive design */
