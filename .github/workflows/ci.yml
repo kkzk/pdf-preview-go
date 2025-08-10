@@ -46,13 +46,14 @@ jobs:
 
     # --- Go品質チェック ---
     - name: Run go fmt
-      shell: bash
+      shell: pwsh
       run: |
-        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
-          echo "以下のファイルがgo fmtでフォーマットされていません:"
-          gofmt -s -l .
+        $files = gofmt -s -l .
+        if ($files) {
+          Write-Host "以下のファイルがgo fmtでフォーマットされていません:"
+          $files
           exit 1
-        fi
+        }
 
     - name: Run go vet
       run: go vet ./...
