@@ -1,0 +1,2 @@
+# Goソースファイルは常にLF改行を強制
+*.go text eol=lf
