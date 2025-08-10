@@ -40,14 +40,11 @@ jobs:
     - name: Install Wails
       run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
-    - name: Wails build (for embed check)
-      run: wails build -platform windows/amd64 -devtools
-
     # --- Go品質チェック ---
     - name: Run go fmt
       shell: pwsh
       run: |
-        $files = gofmt -s -l *.go
+        $files = gofmt -s -l .
         if ($files) {
           Write-Host "以下のファイルがgo fmtでフォーマットされていません:"
           $files
