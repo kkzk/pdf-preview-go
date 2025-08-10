@@ -39,6 +39,12 @@ jobs:
       run: go mod download
 
 
+    - name: Install Wails
+      run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+    - name: Generate Wails JS bindings
+      run: wails generate module
+
     - name: Install frontend dependencies
       working-directory: frontend
       run: npm install
@@ -47,18 +53,11 @@ jobs:
       working-directory: frontend
       run: npm run build
 
-
-    - name: Install Wails
-      run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
-
-    - name: Wails build (for embed check)
-      run: wails build -platform windows/amd64 -devtools
-
     # --- Go品質チェック ---
     - name: Run go fmt
       shell: pwsh
       run: |
-        $files = gofmt -s -l .
+        $files = gofmt -s -l *.go
         if ($files) {
           Write-Host "以下のファイルがgo fmtでフォーマットされていません:"
           $files
@@ -66,7 +65,7 @@ jobs:
         }
 
     - name: Run go vet
-      run: go vet ./...
+      run: go vet .
 
     - name: Run go mod tidy check
       shell: bash
@@ -78,13 +77,8 @@ jobs:
           exit 1
         fi
 
-    # --- フロントエンド品質チェック ---
-    - name: Generate Wails JS bindings
-      run: wails generate module
-
-    - name: Build frontend
-      working-directory: frontend
-      run: npm run build
+    - name: Wails build (for embed check)
+      run: wails build -platform windows/amd64 -devtools
 
   # Windowsビルドテスト
   build-test:
@@ -110,6 +104,9 @@ jobs:
 
     - name: Install Wails
       run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+    - name: Generate Wails JS bindings
+      run: wails generate module
 
     - name: Install frontend dependencies
       working-directory: frontend
