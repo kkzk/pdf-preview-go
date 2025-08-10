@@ -49,6 +49,28 @@ Windowsターミナルコマンド生成時：
 `.vscode/settings.json` により保存時自動フォーマット・lint修正が実行されます。
 新機能追加や修正の最後に必ずエラーチェックを実行し、クリーンな状態を維持してください。
 
+## テスト実行ルール
+
+### 必須事項
+**アプリケーションのテスト実行時は必ずテストディレクトリを指定してください**
+
+### テスト実行方法
+```powershell
+# ビルド後のテスト実行
+.\build\bin\pdf-preview-go.exe .\test\testdata
+
+# 開発モードテスト
+wails dev  # その後アプリ内でtestdataフォルダを選択
+```
+
+### VS Codeデバッグ
+- `Debug PDF Preview Go (Source)` を使用（自動的に./testが指定される）
+- カスタムディレクトリテスト用に `Debug PDF Preview Go (Custom Dir)` も利用可能
+
+### テストデータ場所
+- **メインテストディレクトリ**: `./test/testdata/`
+- **含まれるファイル**: testdata1.xlsx, testdata2.xlsx, testdata3.docx
+
 ---
 
 **重要**: アプリケーションの動作仕様や UI 設計に関する詳細は `docs/` フォルダ内の仕様書を参照し、

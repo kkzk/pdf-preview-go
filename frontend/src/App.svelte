@@ -9,6 +9,10 @@
     GetExcelSheets,
     GetInitialDirectory,
     HasUnsavedChanges,
+    LoadDirectorySessionCache,
+    LoadSheetSelectionsForDirectory,
+    SaveDirectorySessionCache,
+    SaveSheetSelectionsForDirectory,
     SetAutoUpdateEnabled,
     SetWindowTitle,
     ShowSaveDialog,
@@ -19,6 +23,12 @@
   import PdfViewer from './components/PdfViewer.svelte'
   import SelectedFilesPanel from './components/SelectedFilesPanel.svelte'
   import SheetsPanel from './components/SheetsPanel.svelte'
+
+  // Helper function to check if file is Excel
+  function isExcelFile(filename) {
+    const ext = filename.toLowerCase()
+    return ext.endsWith('.xlsx') || ext.endsWith('.xlsm') || ext.endsWith('.xls')
+  }
 
   // Main application state
   let rootDirectory = ''
@@ -41,8 +51,8 @@
   let isLogExpanded = false // Track log section state
   let pdfViewerKey = 0 // Force PDF viewer reload
 
-  // Dynamic panel split based on log state
-  // Reactive statements
+  // Session save interval reference
+  let sessionSaveInterval
   $: effectiveRightPanelSplit = isLogExpanded ? rightPanelSplit : 95 // ログ折りたたみ時はPDF表示を95%に
 
   // Force PDF viewer reload when URL changes
@@ -53,7 +63,7 @@
   // Left panel section heights (percentages)
   let fileTreeHeight = 40
   let selectedFilesHeight = 35
-  let sheetsHeight = 25
+  // sheetsHeight は削除 - CSS flexで自動調整
 
   // Resize states
   let isResizingLeftPanel = false
@@ -73,6 +83,27 @@
         rootDirectory = initialDir
         await loadFileTree()
         await SetWindowTitle(initialDir)
+
+        // Load saved session state for this directory
+        try {
+          await loadDirectorySession(initialDir)
+        } catch (error) {
+          addLog(`セッション状態の読み込みでエラー: ${error}`)
+
+          // Fallback to loading only sheet selections
+          try {
+            const savedSelections = await LoadSheetSelectionsForDirectory()
+            if (savedSelections && Object.keys(savedSelections).length > 0) {
+              sheetSelections = savedSelections
+              addLog(
+                `保存されたシート選択を読み込みました (${Object.keys(savedSelections).length}ファイル)`
+              )
+            }
+          } catch (fallbackError) {
+            addLog(`シート選択の読み込みでエラー: ${fallbackError}`)
+          }
+        }
+
         addLog(`作業ディレクトリを設定しました: ${initialDir}`)
       }
 
@@ -127,12 +158,47 @@
 
     // Listen for directory change events from menu
     EventsOn('directory-changed', async newDir => {
+      // Save current session before changing directory
+      if (rootDirectory) {
+        await saveCurrentDirectorySession()
+      }
+
       rootDirectory = newDir
       expandedFolders.clear()
       expandedFolders = new Set()
+
+      // Reset current state
+      selectedFiles = []
+      currentFile = null
+      excelSheets = []
+      sheetSelections = {}
+      pdfUrl = ''
+
       await loadFileTree()
       await SetWindowTitle(newDir)
-      addLog(`作業フォルダを変更しました: ${newDir}`)
+
+      // Load saved session state for new directory
+      try {
+        await loadDirectorySession(newDir)
+        addLog(`作業フォルダを変更し、前回の状態を復元しました: ${newDir}`)
+      } catch (error) {
+        addLog(`セッション状態の読み込みでエラー: ${error}`)
+
+        // Fallback to loading only sheet selections
+        try {
+          const savedSelections = await LoadSheetSelectionsForDirectory()
+          if (savedSelections && Object.keys(savedSelections).length > 0) {
+            sheetSelections = savedSelections
+            addLog(
+              `新しいディレクトリのシート選択を読み込みました (${Object.keys(savedSelections).length}ファイル)`
+            )
+          }
+        } catch (fallbackError) {
+          addLog(`シート選択の読み込みでエラー: ${fallbackError}`)
+        }
+
+        addLog(`作業フォルダを変更しました: ${newDir}`)
+      }
     })
 
     // Listen for file change events
@@ -157,9 +223,23 @@
         await updateSaveStatus()
       }
     })
+
+    // Auto-save session every 30 seconds
+    sessionSaveInterval = setInterval(() => {
+      if (rootDirectory) {
+        saveCurrentDirectorySession().catch(error => {
+          console.warn(`自動セッション保存エラー: ${error}`)
+        })
+      }
+    }, 30000) // 30 seconds
   })
 
   onDestroy(() => {
+    // Clear session save interval
+    if (sessionSaveInterval) {
+      clearInterval(sessionSaveInterval)
+    }
+
     // Clean up event listeners
     EventsOff('directory-changed')
     EventsOff('file-changed')
@@ -168,6 +248,13 @@
 
     // Clean up beforeunload event listener
     window.removeEventListener('beforeunload', handleBeforeUnload)
+
+    // Save session before component destroys
+    if (rootDirectory) {
+      saveCurrentDirectorySession().catch(error => {
+        console.warn(`終了時セッション保存エラー: ${error}`)
+      })
+    }
   })
 
   async function loadFileTree() {
@@ -192,6 +279,9 @@
       expandedFolders.add(folderPath)
     }
     expandedFolders = new Set(expandedFolders) // Trigger reactivity
+
+    // Debounced session save
+    debouncedSaveSession()
   }
 
   function isFolderExpanded(folderPath) {
@@ -216,11 +306,18 @@
     selectedFiles = [...selectedFiles]
 
     // If it's an Excel file, load its sheets
-    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xlsm')) {
+    if (isExcelFile(file.name)) {
       loadExcelSheets(file)
+    } else {
+      // Excel以外のファイルの場合、現在のファイルに設定してシート一覧をクリア
+      currentFile = file
+      excelSheets = []
     }
 
     addLog(`ファイル選択更新: ${file.name}`)
+
+    // Debounced session save
+    debouncedSaveSession()
   }
 
   function isFileSelected(file) {
@@ -234,9 +331,20 @@
 
       // Initialize sheet selections if not exists
       if (!sheetSelections[file.path]) {
-        sheetSelections[file.path] = excelSheets
-          .filter(sheet => sheet.visible)
-          .map(sheet => sheet.name)
+        // Check if we have saved selections for this file
+        const savedSelections = await LoadSheetSelectionsForDirectory()
+        if (savedSelections && savedSelections[file.path]) {
+          // Use saved selections
+          sheetSelections[file.path] = savedSelections[file.path]
+          addLog(
+            `保存されたシート選択を復元: ${file.name} [${sheetSelections[file.path].join(', ')}]`
+          )
+        } else {
+          // Default: select all visible sheets
+          sheetSelections[file.path] = excelSheets
+            .filter(sheet => sheet.visible)
+            .map(sheet => sheet.name)
+        }
       }
 
       addLog(`Excelシートを読み込みました: ${file.name}`)
@@ -264,12 +372,36 @@
 
     sheetSelections = { ...sheetSelections }
     addLog(`${currentFile.name}の選択シート: [${sheetSelections[filePath].join(', ')}]`)
+
+    // Save sheet selections automatically
+    saveSheetSelections()
+
+    // Debounced session save
+    debouncedSaveSession()
+  }
+
+  // Save sheet selections to cache
+  async function saveSheetSelections() {
+    try {
+      await SaveSheetSelectionsForDirectory(sheetSelections)
+    } catch (error) {
+      // Silently handle save errors - not critical for user experience
+      console.warn('Failed to save sheet selections:', error)
+    }
   }
 
   function selectFileFromList(file) {
-    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xlsm')) {
+    currentFile = file
+
+    if (isExcelFile(file.name)) {
       loadExcelSheets(file)
+    } else {
+      // Excel以外のファイルの場合、シート一覧をクリア
+      excelSheets = []
     }
+
+    // Debounced session save
+    debouncedSaveSession()
   }
 
   // Event handlers for SelectedFilesPanel
@@ -284,6 +416,9 @@
     selectedFiles[to] = temp
     selectedFiles = [...selectedFiles]
     addLog('ファイル順序を変更しました')
+
+    // Debounced session save
+    debouncedSaveSession()
   }
 
   function handleRemoveFile(event) {
@@ -291,6 +426,9 @@
     const removed = selectedFiles.splice(index, 1)[0]
     selectedFiles = [...selectedFiles]
     addLog(`ファイルを削除しました: ${removed.name}`)
+
+    // Debounced session save
+    debouncedSaveSession()
   }
 
   // Event handlers for SheetsPanel
@@ -390,6 +528,136 @@
     }
   }
 
+  // Session management functions
+  async function saveCurrentDirectorySession() {
+    if (!rootDirectory) {
+      return
+    }
+
+    try {
+      const selectedFilePaths = selectedFiles.map(f => f.path)
+      const expandedFolderPaths = Array.from(expandedFolders)
+      const currentFilePath = currentFile ? currentFile.path : ''
+
+      await SaveDirectorySessionCache(
+        rootDirectory,
+        selectedFilePaths,
+        expandedFolderPaths,
+        currentFilePath,
+        sheetSelections
+      )
+    } catch (error) {
+      console.warn(`セッション保存エラー: ${error}`)
+    }
+  }
+
+  async function loadDirectorySession(dirPath) {
+    if (!dirPath) {
+      return
+    }
+
+    try {
+      const sessionCache = await LoadDirectorySessionCache(dirPath)
+      if (!sessionCache) {
+        // No session data found
+        return
+      }
+
+      // Restore expanded folders
+      if (sessionCache.expandedFolders && sessionCache.expandedFolders.length > 0) {
+        expandedFolders = new Set(sessionCache.expandedFolders)
+      }
+
+      // Restore selected files
+      if (sessionCache.selectedFiles && sessionCache.selectedFiles.length > 0) {
+        selectedFiles = []
+        for (const filePath of sessionCache.selectedFiles) {
+          const file = findFileInTree(fileTree, filePath)
+          if (file) {
+            selectedFiles.push(file)
+          }
+        }
+      }
+
+      // Restore current file
+      if (sessionCache.currentFile) {
+        const file = findFileInTree(fileTree, sessionCache.currentFile)
+        if (file) {
+          currentFile = file
+          // Load excel sheets for current file if it's an Excel file
+          if (isExcelFile(file.name)) {
+            try {
+              excelSheets = await GetExcelSheets(file.path)
+            } catch (error) {
+              addLog(`シート情報取得エラー: ${error}`)
+            }
+          } else {
+            // Excel以外の場合はシート一覧をクリア
+            excelSheets = []
+          }
+        }
+      }
+
+      // Restore sheet selections
+      if (sessionCache.sheetSelections) {
+        sheetSelections = sessionCache.sheetSelections
+      }
+
+      const restoredItems = []
+      if (sessionCache.selectedFiles?.length > 0) {
+        restoredItems.push(`選択ファイル: ${sessionCache.selectedFiles.length}件`)
+      }
+      if (sessionCache.expandedFolders?.length > 0) {
+        restoredItems.push(`展開フォルダ: ${sessionCache.expandedFolders.length}件`)
+      }
+      if (sessionCache.currentFile) {
+        restoredItems.push(`現在のファイル`)
+      }
+      if (Object.keys(sessionCache.sheetSelections || {}).length > 0) {
+        restoredItems.push(
+          `シート選択: ${Object.keys(sessionCache.sheetSelections).length}ファイル`
+        )
+      }
+
+      if (restoredItems.length > 0) {
+        addLog(`前回の状態を復元しました (${restoredItems.join(', ')})`)
+      }
+    } catch (error) {
+      throw new Error(`セッション復元エラー: ${error}`)
+    }
+  }
+
+  function findFileInTree(tree, targetPath) {
+    for (const item of tree) {
+      if (item.path === targetPath) {
+        return item
+      }
+      if (item.children) {
+        const found = findFileInTree(item.children, targetPath)
+        if (found) {
+          return found
+        }
+      }
+    }
+    return null
+  }
+
+  // Debounced session save to avoid too frequent saves
+  let saveSessionTimeout
+  function debouncedSaveSession() {
+    if (saveSessionTimeout) {
+      clearTimeout(saveSessionTimeout)
+    }
+
+    saveSessionTimeout = setTimeout(() => {
+      if (rootDirectory) {
+        saveCurrentDirectorySession().catch(error => {
+          console.warn(`遅延セッション保存エラー: ${error}`)
+        })
+      }
+    }, 2000) // 2 seconds debounce
+  }
+
   function addLog(message) {
     const timestamp = new Date().toLocaleTimeString()
     logs.push(`${timestamp}: ${message}`)
@@ -458,11 +726,11 @@
       const newHeight = Math.max(20, Math.min(60, (relativeY / panelHeight) * 100))
 
       const remaining = 100 - newHeight
-      const ratio = selectedFilesHeight / (selectedFilesHeight + sheetsHeight)
+      const ratio = selectedFilesHeight / (selectedFilesHeight + 35) // sheetsHeight基準値を35に固定
 
       fileTreeHeight = newHeight
       selectedFilesHeight = remaining * ratio
-      sheetsHeight = remaining * (1 - ratio)
+      // sheetsHeight は自動調整されるため削除
     }
 
     if (isResizingSelectedFiles) {
@@ -479,7 +747,7 @@
 
       const totalRemaining = 100 - fileTreeHeight
       selectedFilesHeight = (newSelectedHeight / 100) * totalRemaining
-      sheetsHeight = totalRemaining - selectedFilesHeight
+      // sheetsHeight は自動調整されるため削除
     }
   }
 
@@ -526,7 +794,7 @@
 
       <!-- Excel Sheets -->
       <!-- Excel Sheets -->
-      <div class="panel-section sheets-section" style="height: {sheetsHeight}%;">
+      <div class="panel-section sheets-section">
         <SheetsPanel
           {currentFile}
           {excelSheets}
@@ -651,6 +919,7 @@
   /* Sheets section */
   .sheets-section {
     min-height: 80px;
+    flex: 1; /* 残りのスペースを自動的に占有 */
   }
 
   /* Right panel */
