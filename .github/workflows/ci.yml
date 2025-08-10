@@ -21,7 +21,6 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-
     - name: Setup Go
       uses: actions/setup-go@v5
       with:
@@ -38,20 +37,11 @@ jobs:
     - name: Install Go dependencies
       run: go mod download
 
-
     - name: Install Wails
       run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
-    - name: Generate Wails JS bindings
-      run: wails generate module
-
-    - name: Install frontend dependencies
-      working-directory: frontend
-      run: npm install
-
-    - name: Build frontend
-      working-directory: frontend
-      run: npm run build
+    - name: Wails build (for embed check)
+      run: wails build -platform windows/amd64 -devtools
 
     # --- Go品質チェック ---
     - name: Run go fmt
@@ -77,9 +67,6 @@ jobs:
           exit 1
         fi
 
-    - name: Wails build (for embed check)
-      run: wails build -platform windows/amd64 -devtools
-
   # Windowsビルドテスト
   build-test:
     runs-on: windows-latest
@@ -104,13 +91,6 @@ jobs:
 
     - name: Install Wails
       run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
-
-    - name: Generate Wails JS bindings
-      run: wails generate module
-
-    - name: Install frontend dependencies
-      working-directory: frontend
-      run: npm install
 
     # Windows開発用ビルドテスト（NSISインストーラーは作成しない）
     - name: Test Build (Windows Dev Mode)
