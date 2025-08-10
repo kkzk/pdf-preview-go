@@ -14,6 +14,12 @@
 
   const dispatch = createEventDispatcher()
 
+  // Helper function to check if file is Excel
+  function isExcelFile(filename) {
+    const ext = filename.toLowerCase()
+    return ext.endsWith('.xlsx') || ext.endsWith('.xlsm') || ext.endsWith('.xls')
+  }
+
   function isSheetSelected(sheetName) {
     if (!currentFile) return false
     const selections = sheetSelections[currentFile.path] || []
@@ -57,7 +63,17 @@
         {/each}
       </div>
     {:else}
-      <div class="no-sheets">Excelファイルを選択してください</div>
+      <div class="no-sheets">
+        {#if currentFile}
+          {#if isExcelFile(currentFile.name)}
+            シートが見つかりません
+          {:else}
+            選択されたファイル（{currentFile.name}）にはシートがありません
+          {/if}
+        {:else}
+          Excelファイルを選択してください
+        {/if}
+      </div>
     {/if}
   </div>
 

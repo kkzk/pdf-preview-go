@@ -24,6 +24,12 @@
   import SelectedFilesPanel from './components/SelectedFilesPanel.svelte'
   import SheetsPanel from './components/SheetsPanel.svelte'
 
+  // Helper function to check if file is Excel
+  function isExcelFile(filename) {
+    const ext = filename.toLowerCase()
+    return ext.endsWith('.xlsx') || ext.endsWith('.xlsm') || ext.endsWith('.xls')
+  }
+
   // Main application state
   let rootDirectory = ''
   let fileTree = []
@@ -300,8 +306,12 @@
     selectedFiles = [...selectedFiles]
 
     // If it's an Excel file, load its sheets
-    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xlsm')) {
+    if (isExcelFile(file.name)) {
       loadExcelSheets(file)
+    } else {
+      // Excel以外のファイルの場合、現在のファイルに設定してシート一覧をクリア
+      currentFile = file
+      excelSheets = []
     }
 
     addLog(`ファイル選択更新: ${file.name}`)
@@ -381,8 +391,13 @@
   }
 
   function selectFileFromList(file) {
-    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xlsm')) {
+    currentFile = file
+
+    if (isExcelFile(file.name)) {
       loadExcelSheets(file)
+    } else {
+      // Excel以外のファイルの場合、シート一覧をクリア
+      excelSheets = []
     }
 
     // Debounced session save
@@ -570,13 +585,15 @@
         if (file) {
           currentFile = file
           // Load excel sheets for current file if it's an Excel file
-          const ext = file.path.toLowerCase()
-          if (ext.endsWith('.xlsx') || ext.endsWith('.xls') || ext.endsWith('.xlsm')) {
+          if (isExcelFile(file.name)) {
             try {
               excelSheets = await GetExcelSheets(file.path)
             } catch (error) {
               addLog(`シート情報取得エラー: ${error}`)
             }
+          } else {
+            // Excel以外の場合はシート一覧をクリア
+            excelSheets = []
           }
         }
       }
