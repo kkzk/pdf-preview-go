@@ -87,6 +87,7 @@
     flex-direction: column;
     overflow: hidden;
     position: relative;
+    height: 100%; /* 親から与えられた高さを完全に使用 */
     min-height: 80px;
   }
 
@@ -131,7 +132,8 @@
     border: 1px solid #dee2e6;
     border-radius: 4px;
     background: white;
-    min-height: 0;
+    min-height: 0; /* flexアイテムがshrinkできるように */
+    max-height: 100%; /* 親コンテナを超えないように */
   }
 
   .convert-section {
@@ -143,11 +145,12 @@
   .sheet-checkbox {
     display: flex;
     align-items: center;
-    padding: 0.5rem;
+    padding: 0.75rem 0.5rem; /* 縦のパディングを少し増やして使いやすく */
     cursor: pointer;
     gap: 0.5rem;
     border-bottom: 1px solid #f8f9fa;
     background: white;
+    min-height: 40px; /* 最小高さを設定してクリックしやすく */
   }
 
   .sheet-checkbox:hover:not(.disabled) {
@@ -171,11 +174,17 @@
   }
 
   .no-sheets {
-    padding: 1rem;
+    flex: 1; /* 利用可能な領域を埋める */
+    display: flex;
+    align-items: center;
+    justify-content: center;
     text-align: center;
     color: #6c757d;
     font-size: 12px;
     background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    min-height: 80px; /* 最小高さを確保 */
   }
 
   /* Input elements styling */

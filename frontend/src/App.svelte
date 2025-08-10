@@ -45,8 +45,8 @@
   let isLogExpanded = false // Track log section state
   let pdfViewerKey = 0 // Force PDF viewer reload
 
-  // Dynamic panel split based on log state
-  // Reactive statements
+  // Session save interval reference
+  let sessionSaveInterval
   $: effectiveRightPanelSplit = isLogExpanded ? rightPanelSplit : 95 // ログ折りたたみ時はPDF表示を95%に
 
   // Force PDF viewer reload when URL changes
@@ -57,7 +57,7 @@
   // Left panel section heights (percentages)
   let fileTreeHeight = 40
   let selectedFilesHeight = 35
-  let sheetsHeight = 25
+  // sheetsHeight は削除 - CSS flexで自動調整
 
   // Resize states
   let isResizingLeftPanel = false
@@ -219,22 +219,19 @@
     })
 
     // Auto-save session every 30 seconds
-    const sessionSaveInterval = setInterval(() => {
+    sessionSaveInterval = setInterval(() => {
       if (rootDirectory) {
         saveCurrentDirectorySession().catch(error => {
           console.warn(`自動セッション保存エラー: ${error}`)
         })
       }
     }, 30000) // 30 seconds
-
-    // Store interval reference for cleanup
-    window.sessionSaveInterval = sessionSaveInterval
   })
 
   onDestroy(() => {
     // Clear session save interval
-    if (window.sessionSaveInterval) {
-      clearInterval(window.sessionSaveInterval)
+    if (sessionSaveInterval) {
+      clearInterval(sessionSaveInterval)
     }
 
     // Clean up event listeners
@@ -712,11 +709,11 @@
       const newHeight = Math.max(20, Math.min(60, (relativeY / panelHeight) * 100))
 
       const remaining = 100 - newHeight
-      const ratio = selectedFilesHeight / (selectedFilesHeight + sheetsHeight)
+      const ratio = selectedFilesHeight / (selectedFilesHeight + 35) // sheetsHeight基準値を35に固定
 
       fileTreeHeight = newHeight
       selectedFilesHeight = remaining * ratio
-      sheetsHeight = remaining * (1 - ratio)
+      // sheetsHeight は自動調整されるため削除
     }
 
     if (isResizingSelectedFiles) {
@@ -733,7 +730,7 @@
 
       const totalRemaining = 100 - fileTreeHeight
       selectedFilesHeight = (newSelectedHeight / 100) * totalRemaining
-      sheetsHeight = totalRemaining - selectedFilesHeight
+      // sheetsHeight は自動調整されるため削除
     }
   }
 
@@ -780,7 +777,7 @@
 
       <!-- Excel Sheets -->
       <!-- Excel Sheets -->
-      <div class="panel-section sheets-section" style="height: {sheetsHeight}%;">
+      <div class="panel-section sheets-section">
         <SheetsPanel
           {currentFile}
           {excelSheets}
@@ -905,6 +902,7 @@
   /* Sheets section */
   .sheets-section {
     min-height: 80px;
+    flex: 1; /* 残りのスペースを自動的に占有 */
   }
 
   /* Right panel */

@@ -22,15 +22,19 @@
     <h3>ファイル一覧</h3>
   </div>
   <div class="file-tree">
-    {#each fileTree as rootNode}
-      <TreeNode
-        node={rootNode}
-        {selectedFiles}
-        {expandedFolders}
-        on:toggle-folder={handleToggleFolder}
-        on:toggle-selection={handleToggleSelection}
-      />
-    {/each}
+    {#if fileTree.length === 0}
+      <div class="no-files">ディレクトリを読み込んでいます...</div>
+    {:else}
+      {#each fileTree as rootNode}
+        <TreeNode
+          node={rootNode}
+          {selectedFiles}
+          {expandedFolders}
+          on:toggle-folder={handleToggleFolder}
+          on:toggle-selection={handleToggleSelection}
+        />
+      {/each}
+    {/if}
   </div>
 </div>
 
@@ -40,6 +44,7 @@
     flex-direction: column;
     overflow: hidden;
     position: relative;
+    height: 100%; /* 親から与えられた高さを完全に使用 */
     min-height: 150px;
   }
 
@@ -64,6 +69,20 @@
     border: 1px solid #dee2e6;
     border-radius: 4px;
     background: white;
-    min-height: 0;
+    min-height: 0; /* flexアイテムがshrinkできるように */
+    max-height: 100%; /* 親コンテナを超えないように */
+  }
+
+  /* Empty state message */
+  .no-files {
+    flex: 1; /* 利用可能な領域を埋める */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: #6c757d;
+    font-size: 12px;
+    background: white;
+    min-height: 120px; /* 最小高さを確保 */
   }
 </style>
