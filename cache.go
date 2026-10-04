@@ -26,23 +26,11 @@ func (a *App) SaveSheetSelections(filePath string, sheetSelections map[string][]
 		return fmt.Errorf("failed to create cache directory: %v", err)
 	}
 
-	// Create file hashes for validation
-	fileHashes := make(map[string]string)
-	for path := range sheetSelections {
-		hash, err := a.calculateFileHash(path)
-		if err != nil {
-			// If we can't hash the file, skip it (file might not exist)
-			continue
-		}
-		fileHashes[path] = hash
-	}
-
 	// Create cache structure
 	cache := SheetSelectionCache{
 		DirectoryHash: dirHash,
 		LastUpdated:   time.Now(),
 		Selections:    sheetSelections,
-		FileHashes:    fileHashes,
 		ExpiryTime:    time.Now().AddDate(0, 1, 0), // Expire after 1 month
 	}
 
@@ -93,25 +81,7 @@ func (a *App) LoadSheetSelections(dirPath string) (map[string][]string, error) {
 		return make(map[string][]string), nil
 	}
 
-	// Validate file hashes to ensure files haven't changed
-	validSelections := make(map[string][]string)
-	for path, sheets := range cache.Selections {
-		// Check if file still exists
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			continue // File no longer exists, skip
-		}
-
-		// Check if file hash matches
-		if expectedHash, exists := cache.FileHashes[path]; exists {
-			currentHash, err := a.calculateFileHash(path)
-			if err == nil && currentHash == expectedHash {
-				// File hasn't changed, keep the selections
-				validSelections[path] = sheets
-			}
-		}
-	}
-
-	return validSelections, nil
+	return existingFileSelections(cache.Selections), nil
 }
 
 // CleanupSheetSelectionsCache removes old sheet selection cache files
@@ -188,19 +158,17 @@ func (a *App) createDirectoryHash(dirPath string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-// calculateFileHash calculates hash of file for change detection
-func (a *App) calculateFileHash(filePath string) (string, error) {
-	// For Excel files, we use a combination of file size and modification time
-	// This is faster than reading entire file content
-	info, err := os.Stat(filePath)
-	if err != nil {
-		return "", err
+// existingFileSelections returns the sheet selections of files that still exist.
+// Selections are kept even if a file has been modified: sheet names that no
+// longer exist are dropped by the frontend when it loads the sheet list.
+func existingFileSelections(selections map[string][]string) map[string][]string {
+	valid := make(map[string][]string)
+	for path, sheets := range selections {
+		if _, err := os.Stat(path); err == nil {
+			valid[path] = sheets
+		}
 	}
-
-	// Combine size and mod time for a unique identifier
-	hashInput := fmt.Sprintf("%d_%d", info.Size(), info.ModTime().Unix())
-	hash := md5.Sum([]byte(hashInput))
-	return hex.EncodeToString(hash[:]), nil
+	return valid
 }
 
 // SaveSheetSelectionsForDirectory saves sheet selections for current directory

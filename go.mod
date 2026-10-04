@@ -10,6 +10,7 @@ require (
 	github.com/pdfcpu/pdfcpu v0.11.0
 	github.com/tealeg/xlsx/v3 v3.3.13
 	github.com/wailsapp/wails/v2 v2.10.2
+	golang.org/x/sys v0.33.0
 )
 
 require (
@@ -51,7 +52,6 @@ require (
 	golang.org/x/crypto v0.38.0 // indirect
 	golang.org/x/image v0.27.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/text v0.25.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

@@ -6,7 +6,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/go-ole/go-ole"
@@ -33,16 +36,14 @@ type ConvertResult struct {
 	Error      error
 }
 
-// ConvertToPDF converts an Office file to PDF using Office applications
-func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets map[string][]string, force bool) (string, error) {
-	// Generate cache file name based on file hash and sheet selection
-	hashInput := srcPath
-	if sheets, exists := selectedSheets[srcPath]; exists && len(sheets) > 0 {
-		hashInput += "|" + strings.Join(sheets, ",")
-	}
-	hash := md5.Sum([]byte(hashInput))
-	outputFileName := fmt.Sprintf("%x.pdf", hash)
-	outputPath := filepath.Join(c.cacheDir, outputFileName)
+// ConvertToPDF converts an Office file to PDF using Office applications.
+// For Excel files, only selectedSheets are exported (all sheets if empty).
+//
+// Results are cached per source file and sheet selection. A cached PDF has
+// the source's modification time as its mtime, and is reused while they are
+// equal. Its access time records when it was last used (see CleanupCache).
+func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets []string) (string, error) {
+	outputPath := filepath.Join(c.cacheDir, cacheFileName(srcPath, selectedSheets))
 
 	// Create cache directory if it doesn't exist
 	if err := os.MkdirAll(c.cacheDir, 0755); err != nil {
@@ -55,37 +56,26 @@ func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets map[string
 		return "", fmt.Errorf("source file not found: %v", err)
 	}
 
-	// Check if output already exists and is up to date (unless force is true)
-	if !force {
-		if outputInfo, err := os.Stat(outputPath); err == nil {
-			if srcInfo.ModTime().Equal(outputInfo.ModTime()) {
-				return outputPath, nil // File is up to date
-			}
-		}
+	// Reuse the cached PDF if it is up to date
+	if outputInfo, err := os.Stat(outputPath); err == nil && srcInfo.ModTime().Equal(outputInfo.ModTime()) {
+		markCacheUsed(outputPath, srcInfo.ModTime())
+		return outputPath, nil
 	}
 
 	ext := strings.ToLower(filepath.Ext(srcPath))
 
-	// Handle PDF files (just copy)
-	if ext == ".pdf" {
-		if err := copyFile(srcPath, outputPath); err != nil {
-			return "", err
-		}
-		return outputPath, nil
-	}
-
-	// Initialize COM
-	if err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED); err != nil {
-		return "", fmt.Errorf("failed to initialize COM: %v", err)
-	}
-	defer ole.CoUninitialize()
-
-	// Convert based on file type
 	switch ext {
+	case ".pdf":
+		// Handle PDF files (just copy)
+		err = copyFile(srcPath, outputPath)
 	case ".xlsx", ".xls", ".xlsm":
-		err = c.convertExcelToPDF(srcPath, outputPath, selectedSheets[srcPath])
+		err = withCOM(func() error {
+			return c.convertExcelToPDF(srcPath, outputPath, selectedSheets)
+		})
 	case ".docx", ".doc":
-		err = c.convertWordToPDF(srcPath, outputPath)
+		err = withCOM(func() error {
+			return c.convertWordToPDF(srcPath, outputPath)
+		})
 	default:
 		return "", fmt.Errorf("unsupported file type: %s", ext)
 	}
@@ -94,12 +84,44 @@ func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets map[string
 		return "", err
 	}
 
-	// Set the same modification time as source file
-	if err := os.Chtimes(outputPath, srcInfo.ModTime(), srcInfo.ModTime()); err != nil {
-		// Log warning but don't fail
-	}
-
+	markCacheUsed(outputPath, srcInfo.ModTime())
 	return outputPath, nil
+}
+
+// cacheFileName returns the cache file name for a source file and sheet
+// selection. Sheet names are sorted, since the selection order does not affect
+// the output, and joined by "/", which cannot appear in a sheet name.
+func cacheFileName(srcPath string, selectedSheets []string) string {
+	hashInput := srcPath
+	if len(selectedSheets) > 0 {
+		sheets := append([]string(nil), selectedSheets...)
+		sort.Strings(sheets)
+		hashInput += "|" + strings.Join(sheets, "/")
+	}
+	return fmt.Sprintf("%x.pdf", md5.Sum([]byte(hashInput)))
+}
+
+// markCacheUsed sets a cached PDF's mtime to the source's modification time
+// (for the up-to-date check) and its access time to now (for cleanup)
+func markCacheUsed(outputPath string, srcModTime time.Time) {
+	if err := os.Chtimes(outputPath, time.Now(), srcModTime); err != nil {
+		fmt.Printf("Warning: failed to set cache file times: %v\n", err)
+	}
+}
+
+// withCOM runs fn with COM initialized on the current OS thread.
+// COM requires all calls to be made from the thread that initialized it,
+// so the goroutine is pinned to its OS thread until COM is uninitialized.
+func withCOM(fn func() error) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	if err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED); err != nil {
+		return fmt.Errorf("failed to initialize COM: %v", err)
+	}
+	defer ole.CoUninitialize()
+
+	return fn()
 }
 
 // convertExcelToPDF converts Excel file to PDF using Excel application
@@ -117,13 +139,12 @@ func (c *OfficeConverter) convertExcelToPDF(srcPath, outputPath string, selected
 	}
 	defer excel.Release()
 
-	// Set properties
-	oleutil.PutProperty(excel, "DisplayAlerts", false)
-	oleutil.PutProperty(excel, "Visible", false)
-
-	// Get workbooks collection
-	workbooks := oleutil.MustGetProperty(excel, "Workbooks").ToIDispatch()
-	defer workbooks.Release()
+	// Get workbooks collection (cleanup quits Excel if we started it)
+	workbooks, cleanup, err := prepareOfficeApp(excel, "Workbooks")
+	if err != nil {
+		return fmt.Errorf("failed to prepare Excel application: %v", err)
+	}
+	defer cleanup()
 
 	// Open workbook
 	workbook, err := oleutil.CallMethod(workbooks, "Open", srcPath, false, true)
@@ -138,67 +159,105 @@ func (c *OfficeConverter) convertExcelToPDF(srcPath, outputPath string, selected
 
 	wb := workbook.ToIDispatch()
 
-	// Handle sheet selection
+	// Handle sheet selection: leave only the selected sheets visible
 	if len(selectedSheets) > 0 {
-		// Get worksheets collection
-		worksheets := oleutil.MustGetProperty(wb, "Worksheets").ToIDispatch()
-		defer worksheets.Release()
-
-		// First, hide all sheets except the selected ones
-		totalSheets := int(oleutil.MustGetProperty(worksheets, "Count").Val)
-
-		// Get all sheet names first
-		var allSheetNames []string
-		for i := 1; i <= totalSheets; i++ {
-			sheet := oleutil.MustGetProperty(worksheets, "Item", i).ToIDispatch()
-			sheetName := oleutil.MustGetProperty(sheet, "Name").ToString()
-			allSheetNames = append(allSheetNames, sheetName)
-			sheet.Release()
+		if err := showOnlySelectedSheets(wb, selectedSheets); err != nil {
+			return err
 		}
-
-		// Hide non-selected sheets
-		for _, sheetName := range allSheetNames {
-			isSelected := false
-			for _, selectedName := range selectedSheets {
-				if sheetName == selectedName {
-					isSelected = true
-					break
-				}
-			}
-
-			sheet := oleutil.MustGetProperty(worksheets, "Item", sheetName).ToIDispatch()
-			if !isSelected {
-				fmt.Printf("Hiding sheet: %s\n", sheetName)
-				// Hide the sheet (xlSheetHidden = 0)
-				oleutil.PutProperty(sheet, "Visible", 0)
-			} else {
-				fmt.Printf("Keeping sheet visible: %s\n", sheetName)
-				// Ensure selected sheets are visible (xlSheetVisible = -1)
-				oleutil.PutProperty(sheet, "Visible", -1)
-			}
-			sheet.Release()
-		}
-
-		// Select the first selected sheet to make it active
-		if len(selectedSheets) > 0 {
-			fmt.Printf("Activating first selected sheet: %s\n", selectedSheets[0])
-			firstSheet := oleutil.MustGetProperty(worksheets, "Item", selectedSheets[0]).ToIDispatch()
-			oleutil.CallMethod(firstSheet, "Select")
-			firstSheet.Release()
-		}
-
 		fmt.Printf("Exporting workbook with selected sheets only\n")
-		// Export entire workbook (now only visible sheets will be exported)
-		_, err = oleutil.CallMethod(wb, "ExportAsFixedFormat", 0, outputPath, 0)
-		if err != nil {
-			return fmt.Errorf("failed to export Excel to PDF: %v", err)
-		}
 	} else {
 		fmt.Printf("No specific sheets selected, exporting entire workbook\n")
-		// Export entire workbook
-		_, err = oleutil.CallMethod(wb, "ExportAsFixedFormat", 0, outputPath, 0)
+	}
+
+	// Export entire workbook (only visible sheets are exported)
+	_, err = oleutil.CallMethod(wb, "ExportAsFixedFormat", 0, outputPath, 0)
+	if err != nil {
+		return fmt.Errorf("failed to export Excel to PDF: %v", err)
+	}
+
+	return nil
+}
+
+// Excel XlSheetVisibility values
+const (
+	xlSheetVisible = -1
+	xlSheetHidden  = 0
+)
+
+// showOnlySelectedSheets makes the selected sheets visible and hides the rest.
+// Selected sheets are shown first, because Excel refuses to hide the last
+// visible sheet. Selected names missing from the workbook are skipped, but it
+// is an error if none of them exist.
+func showOnlySelectedSheets(wb *ole.IDispatch, selectedSheets []string) error {
+	sheetsVar, err := oleutil.GetProperty(wb, "Sheets")
+	if err != nil {
+		return fmt.Errorf("failed to get sheets: %v", err)
+	}
+	sheets := sheetsVar.ToIDispatch()
+	defer sheets.Release()
+
+	count := collectionCount(sheets)
+	if count < 0 {
+		return fmt.Errorf("failed to get sheet count")
+	}
+
+	selected := make(map[string]bool, len(selectedSheets))
+	for _, name := range selectedSheets {
+		selected[name] = true
+	}
+
+	// Collect sheets and their names
+	type namedSheet struct {
+		name  string
+		sheet *ole.IDispatch
+	}
+	var all []namedSheet
+	defer func() {
+		for _, s := range all {
+			s.sheet.Release()
+		}
+	}()
+	for i := 1; i <= count; i++ {
+		sheetVar, err := oleutil.GetProperty(sheets, "Item", i)
 		if err != nil {
-			return fmt.Errorf("failed to export Excel to PDF: %v", err)
+			return fmt.Errorf("failed to get sheet %d: %v", i, err)
+		}
+		sheet := sheetVar.ToIDispatch()
+		nameVar, err := oleutil.GetProperty(sheet, "Name")
+		if err != nil {
+			sheet.Release()
+			return fmt.Errorf("failed to get name of sheet %d: %v", i, err)
+		}
+		all = append(all, namedSheet{name: nameVar.ToString(), sheet: sheet})
+	}
+
+	// Show selected sheets first
+	found := 0
+	for _, s := range all {
+		if !selected[s.name] {
+			continue
+		}
+		fmt.Printf("Keeping sheet visible: %s\n", s.name)
+		if _, err := oleutil.PutProperty(s.sheet, "Visible", xlSheetVisible); err != nil {
+			return fmt.Errorf("failed to show sheet %q: %v", s.name, err)
+		}
+		found++
+	}
+	if found == 0 {
+		return fmt.Errorf("selected sheets not found in workbook: %s", strings.Join(selectedSheets, ", "))
+	}
+	if found < len(selected) {
+		fmt.Printf("Warning: some selected sheets were not found: %s\n", strings.Join(selectedSheets, ", "))
+	}
+
+	// Then hide the others
+	for _, s := range all {
+		if selected[s.name] {
+			continue
+		}
+		fmt.Printf("Hiding sheet: %s\n", s.name)
+		if _, err := oleutil.PutProperty(s.sheet, "Visible", xlSheetHidden); err != nil {
+			return fmt.Errorf("failed to hide sheet %q: %v", s.name, err)
 		}
 	}
 
@@ -220,13 +279,12 @@ func (c *OfficeConverter) convertWordToPDF(srcPath, outputPath string) error {
 	}
 	defer word.Release()
 
-	// Set properties
-	oleutil.PutProperty(word, "DisplayAlerts", false)
-	oleutil.PutProperty(word, "Visible", false)
-
-	// Get documents collection
-	documents := oleutil.MustGetProperty(word, "Documents").ToIDispatch()
-	defer documents.Release()
+	// Get documents collection (cleanup quits Word if we started it)
+	documents, cleanup, err := prepareOfficeApp(word, "Documents", wdDoNotSaveChanges)
+	if err != nil {
+		return fmt.Errorf("failed to prepare Word application: %v", err)
+	}
+	defer cleanup()
 
 	// Open document
 	document, err := oleutil.CallMethod(documents, "Open", srcPath, false, true, false, "")
@@ -248,6 +306,69 @@ func (c *OfficeConverter) convertWordToPDF(srcPath, outputPath string) error {
 	}
 
 	return nil
+}
+
+// wdDoNotSaveChanges is the SaveChanges argument for Word's Application.Quit
+const wdDoNotSaveChanges = 0
+
+// prepareOfficeApp configures an Office application for background conversion
+// and returns its document collection (e.g. "Workbooks", "Documents") along
+// with a cleanup function. Defer the cleanup before opening the document so
+// that it runs after the document has been closed.
+//
+// CreateObject may return an instance the user is already working with
+// (notably Word). Such an instance is left visible and running, and only its
+// DisplayAlerts setting is restored. An instance started for this conversion
+// is quit, but only when no documents remain open in it.
+func prepareOfficeApp(app *ole.IDispatch, collectionName string, quitArgs ...interface{}) (*ole.IDispatch, func(), error) {
+	collectionVar, err := oleutil.GetProperty(app, collectionName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get %s: %v", collectionName, err)
+	}
+	collection := collectionVar.ToIDispatch()
+
+	// If the count is unknown (-1), treat it as a user instance to be safe
+	userInstance := isAppVisible(app) || collectionCount(collection) != 0
+
+	origAlerts, alertsErr := oleutil.GetProperty(app, "DisplayAlerts")
+	oleutil.PutProperty(app, "DisplayAlerts", false)
+	if !userInstance {
+		oleutil.PutProperty(app, "Visible", false)
+	}
+
+	cleanup := func() {
+		if userInstance {
+			if alertsErr == nil {
+				oleutil.PutProperty(app, "DisplayAlerts", origAlerts.Value())
+			}
+		} else if collectionCount(collection) == 0 {
+			if _, err := oleutil.CallMethod(app, "Quit", quitArgs...); err != nil {
+				fmt.Printf("Warning: failed to quit Office application: %v\n", err)
+			}
+		}
+		collection.Release()
+	}
+
+	return collection, cleanup, nil
+}
+
+// isAppVisible reports whether the Office application window is visible
+func isAppVisible(app *ole.IDispatch) bool {
+	v, err := oleutil.GetProperty(app, "Visible")
+	if err != nil {
+		return false
+	}
+	visible, _ := v.Value().(bool)
+	return visible
+}
+
+// collectionCount returns the Count of a COM collection, or -1 on error
+func collectionCount(collection *ole.IDispatch) int {
+	v, err := oleutil.GetProperty(collection, "Count")
+	if err != nil {
+		return -1
+	}
+	return int(v.Val)
 }
 
 // GetExcelSheetsInfo returns information about sheets in an Excel file
@@ -324,7 +445,8 @@ func copyFile(src, dst string) error {
 	return os.Chmod(dst, sourceInfo.Mode())
 }
 
-// CleanupCache removes old cache files (older than specified duration)
+// CleanupCache removes cached PDFs that have not been used for maxAge
+
 func (c *OfficeConverter) CleanupCache(maxAge time.Duration) error {
 	entries, err := os.ReadDir(c.cacheDir)
 	if err != nil {
@@ -336,7 +458,8 @@ func (c *OfficeConverter) CleanupCache(maxAge time.Duration) error {
 
 	cutoff := time.Now().Add(-maxAge)
 	for _, entry := range entries {
-		if entry.IsDir() {
+		// Only PDFs; session and history JSON files have their own cleanup
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".pdf") {
 			continue
 		}
 
@@ -345,7 +468,7 @@ func (c *OfficeConverter) CleanupCache(maxAge time.Duration) error {
 			continue
 		}
 
-		if info.ModTime().Before(cutoff) {
+		if lastUsed(info).Before(cutoff) {
 			filePath := filepath.Join(c.cacheDir, entry.Name())
 			if err := os.Remove(filePath); err != nil {
 				fmt.Printf("Warning: could not remove cache file %s: %v\n", filePath, err)
@@ -354,4 +477,13 @@ func (c *OfficeConverter) CleanupCache(maxAge time.Duration) error {
 	}
 
 	return nil
+}
+
+// lastUsed returns when a cached PDF was last used. Its mtime mirrors the
+// source file's modification time, so the access time is used instead.
+func lastUsed(info os.FileInfo) time.Time {
+	if data, ok := info.Sys().(*syscall.Win32FileAttributeData); ok {
+		return time.Unix(0, data.LastAccessTime.Nanoseconds())
+	}
+	return info.ModTime()
 }

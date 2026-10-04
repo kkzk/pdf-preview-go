@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"net/http"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -10,21 +10,29 @@ import (
 
 // App struct
 type App struct {
-	ctx                 context.Context
-	converter           *OfficeConverter
-	initialDir          string // Initial directory to open
-	httpServer          *http.Server
-	httpPort            int
-	watcher             *fsnotify.Watcher
+	ctx        context.Context
+	converter  *OfficeConverter
+	initialDir string // Initial directory to open
+	watcher    *fsnotify.Watcher
+
+	// convertMu serializes conversions so that only one runs at a time
+	convertMu sync.Mutex
+	// regenerateCh receives auto-regeneration requests (buffered, size 1)
+	regenerateCh chan struct{}
+	// stopCh is closed on shutdown to stop background goroutines
+	stopCh chan struct{}
+
+	// mu guards the fields below, which are accessed from the file watcher,
+	// the polling goroutine and frontend calls
+	mu                  sync.Mutex
 	watchedDir          string
 	lastConvertedFiles  []string
 	lastConvertedSheets map[string][]string
 	autoUpdateEnabled   bool
 	fileModTimes        map[string]time.Time // Track file modification times
-	pollingTicker       *time.Ticker
-	currentPdfPath      string // Current PDF file path in temp
-	savedPdfPath        string // Last saved PDF path
-	hasUnsavedChanges   bool   // Whether there are unsaved changes
+	currentPdfPath      string               // Current PDF file path in temp
+	savedPdfPath        string               // Last saved PDF path
+	hasUnsavedChanges   bool                 // Whether there are unsaved changes
 }
 
 // FileInfo represents file information
@@ -58,7 +66,6 @@ type SheetSelectionCache struct {
 	DirectoryHash string              `json:"directoryHash"` // MD5 hash of directory path
 	LastUpdated   time.Time           `json:"lastUpdated"`   // When cache was last updated
 	Selections    map[string][]string `json:"selections"`    // File path -> selected sheets
-	FileHashes    map[string]string   `json:"fileHashes"`    // File path -> file content hash
 	ExpiryTime    time.Time           `json:"expiryTime"`    // When cache expires
 }
 
@@ -79,6 +86,5 @@ type DirectorySessionCache struct {
 	ExpandedFolders []string            `json:"expandedFolders"` // List of expanded folder paths
 	CurrentFile     string              `json:"currentFile"`     // Currently selected file
 	SheetSelections map[string][]string `json:"sheetSelections"` // File path -> selected sheets
-	FileHashes      map[string]string   `json:"fileHashes"`      // File path -> file content hash for validation
 	ExpiryTime      time.Time           `json:"expiryTime"`      // When cache expires
 }

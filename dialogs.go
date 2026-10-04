@@ -1,11 +1,18 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"golang.org/x/sys/windows"
 )
+
+// ErrUserCancelled is returned when the user cancels a dialog.
+// The frontend detects cancellation by this message, so keep it unchanged.
+var ErrUserCancelled = errors.New("user_cancelled")
 
 // GetInitialDirectory returns the initial directory set via command line
 func (a *App) GetInitialDirectory() string {
@@ -79,7 +86,10 @@ func (a *App) SetWindowTitle(dirPath string) {
 
 // ShowSaveDialog shows the save dialog and saves the PDF
 func (a *App) ShowSaveDialog() error {
-	if a.currentPdfPath == "" {
+	a.mu.Lock()
+	hasPdf := a.currentPdfPath != ""
+	a.mu.Unlock()
+	if !hasPdf {
 		return fmt.Errorf("no PDF to save")
 	}
 
@@ -109,8 +119,7 @@ func (a *App) ShowSaveDialog() error {
 	}
 
 	if filePath == "" {
-		// User cancelled - return a special error to indicate cancellation
-		return fmt.Errorf("user_cancelled")
+		return ErrUserCancelled
 	}
 
 	// Save the PDF
@@ -121,4 +130,52 @@ func (a *App) ShowSaveDialog() error {
 
 	// Successfully saved
 	return nil
+}
+
+// CloseChoice is the user's answer to the unsaved changes dialog
+type CloseChoice int
+
+const (
+	CloseSave    CloseChoice = iota // Save, then close
+	CloseDiscard                    // Close without saving
+	CloseCancel                     // Do not close
+)
+
+// MessageBox return values
+const (
+	idYes = 6
+	idNo  = 7
+)
+
+// confirmUnsavedChanges asks whether to save the PDF before closing.
+// Wails' MessageDialog on Windows only offers Yes/No for questions, so the
+// Win32 MessageBox is used directly to provide a Cancel button.
+func confirmUnsavedChanges() CloseChoice {
+	title, _ := windows.UTF16PtrFromString("未保存の変更があります")
+	message, _ := windows.UTF16PtrFromString(
+		"PDFファイルに未保存の変更があります。保存しますか？\n\n" +
+			"はい: 保存して終了\nいいえ: 保存せずに終了\nキャンセル: 終了しない")
+
+	ret, _ := windows.MessageBox(ownWindow(), message, title,
+		windows.MB_YESNOCANCEL|windows.MB_ICONWARNING|windows.MB_SETFOREGROUND)
+
+	switch ret {
+	case idYes:
+		return CloseSave
+	case idNo:
+		return CloseDiscard
+	default: // Cancel, closed dialog or error
+		return CloseCancel
+	}
+}
+
+// ownWindow returns the foreground window if it belongs to this process,
+// to be used as the owner of a message box, or 0 otherwise
+func ownWindow() windows.HWND {
+	hwnd := windows.GetForegroundWindow()
+	var pid uint32
+	if _, err := windows.GetWindowThreadProcessId(hwnd, &pid); err != nil || pid != uint32(os.Getpid()) {
+		return 0
+	}
+	return hwnd
 }

@@ -17,7 +17,7 @@
     SetWindowTitle,
     ShowSaveDialog,
   } from '../wailsjs/go/main/App.js'
-  import { EventsOff, EventsOn, Quit } from '../wailsjs/runtime/runtime.js'
+  import { EventsOff, EventsOn } from '../wailsjs/runtime/runtime.js'
   import FileTreePanel from './components/FileTreePanel.svelte'
   import LogPanel from './components/LogPanel.svelte'
   import PdfViewer from './components/PdfViewer.svelte'
@@ -73,7 +73,6 @@
 
   // Initialize component
   // Application exit confirmation handler
-  let handleBeforeUnload
 
   onMount(async () => {
     try {
@@ -115,46 +114,6 @@
     } catch (error) {
       addLog(`作業ディレクトリ取得エラー: ${error}`)
     }
-
-    // Setup application exit confirmation
-    handleBeforeUnload = async event => {
-      try {
-        const hasUnsaved = await HasUnsavedChanges()
-        if (hasUnsaved && pdfUrl) {
-          event.preventDefault()
-          event.returnValue = '' // Required for Chrome
-
-          // Show confirmation dialog
-          const shouldSave = confirm(
-            '未保存のPDFがあります。保存してからアプリケーションを終了しますか？\n\n「OK」: PDFを保存してから終了\n「キャンセル」: 保存せずに終了\n「×」: 終了をキャンセル'
-          )
-
-          if (shouldSave) {
-            try {
-              await ShowSaveDialog()
-              addLog('PDFファイルを保存しました')
-              // Allow normal exit after saving
-              window.removeEventListener('beforeunload', handleBeforeUnload)
-              Quit()
-            } catch (saveError) {
-              addLog(`保存エラー: ${saveError}`)
-              // Don't quit if save failed
-              return false
-            }
-          } else {
-            // User chose not to save, allow exit
-            window.removeEventListener('beforeunload', handleBeforeUnload)
-            Quit()
-          }
-          return false
-        }
-      } catch (error) {
-        addLog(`終了処理エラー: ${error}`)
-      }
-    }
-
-    // Add beforeunload event listener
-    window.addEventListener('beforeunload', handleBeforeUnload)
 
     // Listen for directory change events from menu
     EventsOn('directory-changed', async newDir => {
@@ -205,8 +164,7 @@
     EventsOn('file-changed', data => {
       const fileName = data.file.split('\\').pop() || data.file.split('/').pop()
       addLog(`ファイルが変更されました: ${fileName} - PDFを自動更新中...`)
-      // Force PDF viewer reload when file changes
-      pdfViewerKey++
+      // The viewer reloads when the regenerated PDF URL arrives
     })
 
     // Listen for conversion events
@@ -245,9 +203,6 @@
     EventsOff('file-changed')
     EventsOff('conversion:error')
     EventsOff('conversion:progress')
-
-    // Clean up beforeunload event listener
-    window.removeEventListener('beforeunload', handleBeforeUnload)
 
     // Save session before component destroys
     if (rootDirectory) {
@@ -347,10 +302,39 @@
         }
       }
 
+      reconcileSheetSelection(file, excelSheets)
+
       addLog(`Excelシートを読み込みました: ${file.name}`)
     } catch (error) {
       addLog(`Excelシート読み込みエラー: ${error}`)
     }
+  }
+
+  // Drop selected sheet names that no longer exist in the workbook (e.g. the
+  // sheet was renamed or deleted). If none remain, select all visible sheets.
+  function reconcileSheetSelection(file, sheets) {
+    const selected = sheetSelections[file.path]
+    if (!selected || selected.length === 0) {
+      return
+    }
+
+    const existingNames = new Set(sheets.map(sheet => sheet.name))
+    const kept = selected.filter(name => existingNames.has(name))
+    if (kept.length === selected.length) {
+      return
+    }
+
+    const removed = selected.filter(name => !existingNames.has(name))
+    if (kept.length > 0) {
+      sheetSelections[file.path] = kept
+    } else {
+      sheetSelections[file.path] = sheets.filter(sheet => sheet.visible).map(sheet => sheet.name)
+    }
+    sheetSelections = { ...sheetSelections }
+    addLog(`存在しないシートを選択から外しました: ${file.name} [${removed.join(', ')}]`)
+
+    saveSheetSelections()
+    debouncedSaveSession()
   }
 
   function toggleSheetSelection(sheetName) {
@@ -597,6 +581,9 @@
       // Restore sheet selections
       if (sessionCache.sheetSelections) {
         sheetSelections = sessionCache.sheetSelections
+      }
+      if (currentFile && excelSheets.length > 0) {
+        reconcileSheetSelection(currentFile, excelSheets)
       }
 
       const restoredItems = []

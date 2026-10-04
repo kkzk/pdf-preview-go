@@ -2,22 +2,36 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// mergedFilePrefix is the file name prefix of merged PDFs in the cache directory
+const mergedFilePrefix = "merged_"
 
 // GetExcelSheets returns sheet information for an Excel file
 func (a *App) GetExcelSheets(filePath string) ([]ExcelSheetInfo, error) {
 	return GetExcelSheetsInfo(filePath)
 }
 
-// ConvertToPDF converts selected files to PDF and merges them
+// ConvertToPDF converts selected files to PDF and merges them.
+// Conversions are serialized: a call waits until any running conversion
+// (including auto-regeneration) has finished.
 func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]string) (string, error) {
 	if len(filePaths) == 0 {
 		return "", fmt.Errorf("no files selected for conversion")
 	}
+
+	a.convertMu.Lock()
+	defer a.convertMu.Unlock()
+
+	// Record modification times before converting, so that a save made
+	// during the conversion is detected as a change afterwards
+	modTimes := statModTimes(filePaths)
 
 	var convertedPDFs []string
 	var errors []string
@@ -31,13 +45,7 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 			Progress:    int((float64(i) / float64(len(filePaths))) * 100),
 		})
 
-		// Force regeneration if sheet selections exist for this file
-		forceRegeneration := false
-		if sheets, exists := sheetSelections[filePath]; exists && len(sheets) > 0 {
-			forceRegeneration = true
-		}
-
-		outputPath, err := a.converter.ConvertToPDF(filePath, sheetSelections, forceRegeneration)
+		outputPath, err := a.converter.ConvertToPDF(filePath, sheetSelections[filePath])
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("%s: %v", filepath.Base(filePath), err))
 			continue
@@ -50,64 +58,27 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 		return "", fmt.Errorf("no files were successfully converted: %v", errors)
 	}
 
-	// If only one file, return it directly
-	if len(convertedPDFs) == 1 {
-		// Convert file path to HTTP URL with cache buster
-		fileName := filepath.Base(convertedPDFs[0])
-		timestamp := time.Now().UnixNano()
-		pdfURL := fmt.Sprintf("http://localhost:%d/pdf/%s?v=%d", a.httpPort, fileName, timestamp)
-
+	// If only one file, use it directly; otherwise merge them using pdfcpu
+	pdfPath := convertedPDFs[0]
+	if len(convertedPDFs) > 1 {
 		runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
-			Status:     "completed",
-			Progress:   100,
-			OutputPath: pdfURL,
+			Status:      "running",
+			CurrentFile: "PDFファイルを結合中...",
+			Progress:    90,
 		})
 
-		// Save converted files and sheet selections for auto-update
-		a.lastConvertedFiles = filePaths
-		a.lastConvertedSheets = sheetSelections
+		// Generate merged PDF filename with timestamp
+		// (all PDFs are in the same cache directory)
+		mergedFileName := fmt.Sprintf("%s%s.pdf", mergedFilePrefix, time.Now().Format("20060102_150405.000"))
+		pdfPath = filepath.Join(filepath.Dir(convertedPDFs[0]), mergedFileName)
 
-		// Record current PDF path and mark as modified
-		a.currentPdfPath = convertedPDFs[0]
-		a.hasUnsavedChanges = true
-
-		// Record file modification times
-		a.recordFileModTimes(filePaths)
-
-		// Start watching the directory of the file
-		dirToWatch := filepath.Dir(filePaths[0])
-		a.StartWatchingDirectory(dirToWatch)
-
-		// Start polling for file changes (as backup for fsnotify)
-		a.startPolling()
-
-		return pdfURL, nil
+		if err := MergePDFs(convertedPDFs, pdfPath); err != nil {
+			return "", fmt.Errorf("failed to merge PDFs: %v", err)
+		}
 	}
 
-	// For multiple files, merge them using pdfcpu
-	runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
-		Status:      "running",
-		CurrentFile: "PDFファイルを結合中...",
-		Progress:    90,
-	})
-
-	// Generate merged PDF filename with timestamp
-	timestamp := time.Now().Format("20060102_150405")
-	mergedFileName := fmt.Sprintf("merged_%s.pdf", timestamp)
-
-	// Get cache directory from converter
-	cacheDir := filepath.Dir(convertedPDFs[0]) // All PDFs are in the same cache directory
-	mergedPath := filepath.Join(cacheDir, mergedFileName)
-
-	// Merge PDFs using pdfcpu
-	err := MergePDFs(convertedPDFs, mergedPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to merge PDFs: %v", err)
-	}
-
-	// Convert merged file path to HTTP URL with cache buster
-	timestampCacheBuster := time.Now().UnixNano()
-	pdfURL := fmt.Sprintf("http://localhost:%d/pdf/%s?v=%d", a.httpPort, mergedFileName, timestampCacheBuster)
+	// Convert file path to URL with cache buster
+	pdfURL := buildPdfURL(filepath.Base(pdfPath), time.Now().UnixNano())
 
 	runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
 		Status:     "completed",
@@ -115,25 +86,28 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 		OutputPath: pdfURL,
 	})
 
+	a.mu.Lock()
+	previousPdfPath := a.currentPdfPath
 	// Save converted files and sheet selections for auto-update
 	a.lastConvertedFiles = filePaths
 	a.lastConvertedSheets = sheetSelections
-
 	// Record current PDF path and mark as modified
-	a.currentPdfPath = mergedPath
+	a.currentPdfPath = pdfPath
 	a.hasUnsavedChanges = true
+	// Record file modification times for change detection
+	a.fileModTimes = modTimes
+	a.mu.Unlock()
 
-	// Record file modification times
-	a.recordFileModTimes(filePaths)
-
-	// Start watching the directory of the first file
-	if len(filePaths) > 0 {
-		dirToWatch := filepath.Dir(filePaths[0])
-		a.StartWatchingDirectory(dirToWatch)
+	// Remove the previous merged PDF, which is no longer used. This may fail
+	// while it is being read (e.g. saved); it is then removed by CleanupCache.
+	if previousPdfPath != pdfPath && strings.HasPrefix(filepath.Base(previousPdfPath), mergedFilePrefix) {
+		os.Remove(previousPdfPath)
 	}
 
-	// Start polling for file changes (as backup for fsnotify)
-	a.startPolling()
+	// Start watching the directory of the first file
+	if err := a.StartWatchingDirectory(filepath.Dir(filePaths[0])); err != nil {
+		fmt.Printf("Warning: failed to watch directory: %v\n", err)
+	}
 
 	return pdfURL, nil
 }

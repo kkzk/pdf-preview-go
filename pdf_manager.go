@@ -9,12 +9,16 @@ import (
 
 // SavePdfAs saves the current PDF to a specified location
 func (a *App) SavePdfAs(savePath string) error {
-	if a.currentPdfPath == "" {
+	a.mu.Lock()
+	currentPdfPath := a.currentPdfPath
+	a.mu.Unlock()
+
+	if currentPdfPath == "" {
 		return fmt.Errorf("no PDF to save")
 	}
 
 	// Copy the current PDF to the specified location
-	sourceFile, err := os.Open(a.currentPdfPath)
+	sourceFile, err := os.Open(currentPdfPath)
 	if err != nil {
 		return fmt.Errorf("failed to open source PDF: %v", err)
 	}
@@ -38,8 +42,10 @@ func (a *App) SavePdfAs(savePath string) error {
 		return fmt.Errorf("failed to copy file: %v", err)
 	}
 
+	a.mu.Lock()
 	a.savedPdfPath = savePath
 	a.hasUnsavedChanges = false
+	a.mu.Unlock()
 
 	return nil
 }
@@ -76,10 +82,14 @@ func (a *App) GetDefaultSavePath() string {
 
 // HasUnsavedChanges returns whether there are unsaved changes
 func (a *App) HasUnsavedChanges() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	return a.hasUnsavedChanges
 }
 
 // MarkAsModified marks the current PDF as having unsaved changes
 func (a *App) MarkAsModified() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.hasUnsavedChanges = true
 }
