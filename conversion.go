@@ -2,11 +2,16 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// mergedFilePrefix is the file name prefix of merged PDFs in the cache directory
+const mergedFilePrefix = "merged_"
 
 // GetExcelSheets returns sheet information for an Excel file
 func (a *App) GetExcelSheets(filePath string) ([]ExcelSheetInfo, error) {
@@ -40,13 +45,7 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 			Progress:    int((float64(i) / float64(len(filePaths))) * 100),
 		})
 
-		// Force regeneration if sheet selections exist for this file
-		forceRegeneration := false
-		if sheets, exists := sheetSelections[filePath]; exists && len(sheets) > 0 {
-			forceRegeneration = true
-		}
-
-		outputPath, err := a.converter.ConvertToPDF(filePath, sheetSelections, forceRegeneration)
+		outputPath, err := a.converter.ConvertToPDF(filePath, sheetSelections[filePath])
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("%s: %v", filepath.Base(filePath), err))
 			continue
@@ -70,7 +69,7 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 
 		// Generate merged PDF filename with timestamp
 		// (all PDFs are in the same cache directory)
-		mergedFileName := fmt.Sprintf("merged_%s.pdf", time.Now().Format("20060102_150405"))
+		mergedFileName := fmt.Sprintf("%s%s.pdf", mergedFilePrefix, time.Now().Format("20060102_150405.000"))
 		pdfPath = filepath.Join(filepath.Dir(convertedPDFs[0]), mergedFileName)
 
 		if err := MergePDFs(convertedPDFs, pdfPath); err != nil {
@@ -88,6 +87,7 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 	})
 
 	a.mu.Lock()
+	previousPdfPath := a.currentPdfPath
 	// Save converted files and sheet selections for auto-update
 	a.lastConvertedFiles = filePaths
 	a.lastConvertedSheets = sheetSelections
@@ -97,6 +97,12 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 	// Record file modification times for change detection
 	a.fileModTimes = modTimes
 	a.mu.Unlock()
+
+	// Remove the previous merged PDF, which is no longer used. This may fail
+	// while it is being read (e.g. saved); it is then removed by CleanupCache.
+	if previousPdfPath != pdfPath && strings.HasPrefix(filepath.Base(previousPdfPath), mergedFilePrefix) {
+		os.Remove(previousPdfPath)
+	}
 
 	// Start watching the directory of the first file
 	if err := a.StartWatchingDirectory(filepath.Dir(filePaths[0])); err != nil {

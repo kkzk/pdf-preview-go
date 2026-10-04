@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/go-ole/go-ole"
@@ -34,16 +36,14 @@ type ConvertResult struct {
 	Error      error
 }
 
-// ConvertToPDF converts an Office file to PDF using Office applications
-func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets map[string][]string, force bool) (string, error) {
-	// Generate cache file name based on file hash and sheet selection
-	hashInput := srcPath
-	if sheets, exists := selectedSheets[srcPath]; exists && len(sheets) > 0 {
-		hashInput += "|" + strings.Join(sheets, ",")
-	}
-	hash := md5.Sum([]byte(hashInput))
-	outputFileName := fmt.Sprintf("%x.pdf", hash)
-	outputPath := filepath.Join(c.cacheDir, outputFileName)
+// ConvertToPDF converts an Office file to PDF using Office applications.
+// For Excel files, only selectedSheets are exported (all sheets if empty).
+//
+// Results are cached per source file and sheet selection. A cached PDF has
+// the source's modification time as its mtime, and is reused while they are
+// equal. Its access time records when it was last used (see CleanupCache).
+func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets []string) (string, error) {
+	outputPath := filepath.Join(c.cacheDir, cacheFileName(srcPath, selectedSheets))
 
 	// Create cache directory if it doesn't exist
 	if err := os.MkdirAll(c.cacheDir, 0755); err != nil {
@@ -56,42 +56,26 @@ func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets map[string
 		return "", fmt.Errorf("source file not found: %v", err)
 	}
 
-	// Check if output already exists and is up to date (unless force is true)
-	if !force {
-		if outputInfo, err := os.Stat(outputPath); err == nil {
-			if srcInfo.ModTime().Equal(outputInfo.ModTime()) {
-				return outputPath, nil // File is up to date
-			}
-		}
+	// Reuse the cached PDF if it is up to date
+	if outputInfo, err := os.Stat(outputPath); err == nil && srcInfo.ModTime().Equal(outputInfo.ModTime()) {
+		markCacheUsed(outputPath, srcInfo.ModTime())
+		return outputPath, nil
 	}
 
 	ext := strings.ToLower(filepath.Ext(srcPath))
 
-	// Handle PDF files (just copy)
-	if ext == ".pdf" {
-		if err := copyFile(srcPath, outputPath); err != nil {
-			return "", err
-		}
-		return outputPath, nil
-	}
-
-	// COM requires all calls to be made from the thread that initialized it,
-	// so pin this goroutine to its OS thread until COM is uninitialized
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	// Initialize COM
-	if err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED); err != nil {
-		return "", fmt.Errorf("failed to initialize COM: %v", err)
-	}
-	defer ole.CoUninitialize()
-
-	// Convert based on file type
 	switch ext {
+	case ".pdf":
+		// Handle PDF files (just copy)
+		err = copyFile(srcPath, outputPath)
 	case ".xlsx", ".xls", ".xlsm":
-		err = c.convertExcelToPDF(srcPath, outputPath, selectedSheets[srcPath])
+		err = withCOM(func() error {
+			return c.convertExcelToPDF(srcPath, outputPath, selectedSheets)
+		})
 	case ".docx", ".doc":
-		err = c.convertWordToPDF(srcPath, outputPath)
+		err = withCOM(func() error {
+			return c.convertWordToPDF(srcPath, outputPath)
+		})
 	default:
 		return "", fmt.Errorf("unsupported file type: %s", ext)
 	}
@@ -100,12 +84,44 @@ func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets map[string
 		return "", err
 	}
 
-	// Set the same modification time as source file
-	if err := os.Chtimes(outputPath, srcInfo.ModTime(), srcInfo.ModTime()); err != nil {
-		// Log warning but don't fail
-	}
-
+	markCacheUsed(outputPath, srcInfo.ModTime())
 	return outputPath, nil
+}
+
+// cacheFileName returns the cache file name for a source file and sheet
+// selection. Sheet names are sorted, since the selection order does not affect
+// the output, and joined by "/", which cannot appear in a sheet name.
+func cacheFileName(srcPath string, selectedSheets []string) string {
+	hashInput := srcPath
+	if len(selectedSheets) > 0 {
+		sheets := append([]string(nil), selectedSheets...)
+		sort.Strings(sheets)
+		hashInput += "|" + strings.Join(sheets, "/")
+	}
+	return fmt.Sprintf("%x.pdf", md5.Sum([]byte(hashInput)))
+}
+
+// markCacheUsed sets a cached PDF's mtime to the source's modification time
+// (for the up-to-date check) and its access time to now (for cleanup)
+func markCacheUsed(outputPath string, srcModTime time.Time) {
+	if err := os.Chtimes(outputPath, time.Now(), srcModTime); err != nil {
+		fmt.Printf("Warning: failed to set cache file times: %v\n", err)
+	}
+}
+
+// withCOM runs fn with COM initialized on the current OS thread.
+// COM requires all calls to be made from the thread that initialized it,
+// so the goroutine is pinned to its OS thread until COM is uninitialized.
+func withCOM(fn func() error) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	if err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED); err != nil {
+		return fmt.Errorf("failed to initialize COM: %v", err)
+	}
+	defer ole.CoUninitialize()
+
+	return fn()
 }
 
 // convertExcelToPDF converts Excel file to PDF using Excel application
@@ -429,7 +445,8 @@ func copyFile(src, dst string) error {
 	return os.Chmod(dst, sourceInfo.Mode())
 }
 
-// CleanupCache removes old cache files (older than specified duration)
+// CleanupCache removes cached PDFs that have not been used for maxAge
+
 func (c *OfficeConverter) CleanupCache(maxAge time.Duration) error {
 	entries, err := os.ReadDir(c.cacheDir)
 	if err != nil {
@@ -441,7 +458,8 @@ func (c *OfficeConverter) CleanupCache(maxAge time.Duration) error {
 
 	cutoff := time.Now().Add(-maxAge)
 	for _, entry := range entries {
-		if entry.IsDir() {
+		// Only PDFs; session and history JSON files have their own cleanup
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".pdf") {
 			continue
 		}
 
@@ -450,7 +468,7 @@ func (c *OfficeConverter) CleanupCache(maxAge time.Duration) error {
 			continue
 		}
 
-		if info.ModTime().Before(cutoff) {
+		if lastUsed(info).Before(cutoff) {
 			filePath := filepath.Join(c.cacheDir, entry.Name())
 			if err := os.Remove(filePath); err != nil {
 				fmt.Printf("Warning: could not remove cache file %s: %v\n", filePath, err)
@@ -459,4 +477,13 @@ func (c *OfficeConverter) CleanupCache(maxAge time.Duration) error {
 	}
 
 	return nil
+}
+
+// lastUsed returns when a cached PDF was last used. Its mtime mirrors the
+// source file's modification time, so the access time is used instead.
+func lastUsed(info os.FileInfo) time.Time {
+	if data, ok := info.Sys().(*syscall.Win32FileAttributeData); ok {
+		return time.Unix(0, data.LastAccessTime.Nanoseconds())
+	}
+	return info.ModTime()
 }
