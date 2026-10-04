@@ -14,6 +14,12 @@ Go（Wails v2.16.0）+ Svelte/Vite で構築されています。
 - 👀 リアルタイムPDFプレビュー  
 - 💾 PDF保存・自動更新機能
 
+## 動作環境
+
+- Windows 10 64-bit 以降
+- Microsoft Edge WebView2 ランタイム（Windows 11 には標準搭載。未導入の場合はインストーラーが導入します）
+- Microsoft Office（Excel / Word。Office ファイルを PDF に変換するために使用）
+
 ## 使用方法
 
 ### 実行
