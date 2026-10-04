@@ -3,9 +3,13 @@ name: Build and Release (Windows)
 # A release is created by pushing a version tag, e.g.:
 #   git tag v0.2.0 && git push origin v0.2.0
 # Tags with a suffix (e.g. v0.3.0-beta.1) are published as pre-releases.
+#
+# Running the workflow manually (workflow_dispatch) is a dry run: it builds
+# and passes the artifacts to the release job, but creates no release.
 on:
   push:
     tags: [ 'v*.*.*' ]
+  workflow_dispatch:
 
 env:
   WAILS_VERSION: v2.16.0
@@ -18,13 +22,19 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Set version from tag
       id: version
       shell: pwsh
       run: |
-        $tag = "${{ github.ref_name }}"
+        if ("${{ github.event_name }}" -eq 'workflow_dispatch') {
+          # Dry run: use the version in wails.json
+          $current = (Get-Content wails.json -Raw | ConvertFrom-Json).Info.productVersion
+          $tag = "v$current-dryrun"
+        } else {
+          $tag = "${{ github.ref_name }}"
+        }
         if ($tag -notmatch '^v((\d+\.\d+\.\d+)(-[0-9A-Za-z.-]+)?)$') {
           Write-Error "Tag '$tag' is not a version tag like v1.2.3 or v1.2.3-beta.1"
           exit 1
@@ -41,13 +51,13 @@ jobs:
         Write-Host "Version: $version (product version $coreVersion)"
 
     - name: Setup Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v7
       with:
         go-version-file: go.mod
         cache: true
 
     - name: Setup Node
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v7
       with:
         node-version: '24'
         cache: 'npm'
@@ -89,7 +99,7 @@ jobs:
         ls -la dist
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: pdf-preview-go-windows
         path: dist/*
@@ -103,13 +113,17 @@ jobs:
 
     steps:
     - name: Download Windows artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: pdf-preview-go-windows
         path: release-assets
 
+    - name: List release assets
+      run: ls -la release-assets
+
     - name: Create Release
-      uses: softprops/action-gh-release@v2
+      if: github.event_name == 'push'
+      uses: softprops/action-gh-release@v3
       with:
         tag_name: ${{ github.ref_name }}
         name: PDF Preview Go ${{ github.ref_name }}
