@@ -3,7 +3,7 @@
 ## 概要
 
 Excel または Word ファイルから PDF への変換・プレビュー・保存を行うデスクトップアプリケーションです。
-Go（Wails v2.10.2）+ Svelte/Vite で構築されています。
+Go（Wails v2.16.0）+ Svelte/Vite で構築されています。
 
 [pdf-preview](https://github.com/kkzk/pdf-preview) をコンバージョンしたものです。
 
@@ -28,6 +28,6 @@ PDF作成には Office アプリケーションを起動します。
 
 ## 技術スタック
 
-- **バックエンド**: Go + Wails v2.10.2
+- **バックエンド**: Go + Wails v2.16.0
 - **フロントエンド**: Svelte + Vite
 - **デスクトップ**: Windows専用

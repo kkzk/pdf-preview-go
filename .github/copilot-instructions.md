@@ -1,7 +1,7 @@
 # Copilot Instructions for pdf-preview-go
 
 ## プロジェクト概要
-Go（Wails v2.10.2）+ Svelte/Viteによるデスクトップ PDF プレビューアプリケーション。
+Go（Wails v2.16.0）+ Svelte/Viteによるデスクトップ PDF プレビューアプリケーション。
 ExcelファイルからPDF変換・プレビュー・保存機能を提供します。
 
 ## 開発方針
