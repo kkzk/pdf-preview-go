@@ -65,9 +65,16 @@ jobs:
           exit 1
         fi
 
-    # --- ビルドテスト ---
+    # --- ビルドテスト（インストーラーも作成できることを確認） ---
+    - name: Install NSIS
+      shell: pwsh
+      run: |
+        choco install nsis -y
+        # choco does not update PATH for later steps; wails needs makensis
+        "${env:ProgramFiles(x86)}\NSIS" >> $env:GITHUB_PATH
+
     - name: Test Build (Windows Dev Mode)
-      run: wails build -platform windows/amd64 -devtools
+      run: wails build -platform windows/amd64 -devtools -nsis
 
     # --- Go品質チェック / embed 指定があるためビルド後に実施する ---
     - name: Run go vet
@@ -85,7 +92,9 @@ jobs:
         echo "Build directory contents:"
         find build -type f 2>/dev/null || echo "Build directory not found"
         
-        # exe ファイルが生成されていることを確認
-        find build -name "*.exe" | head -1 | grep -q "." || (echo "No exe file found" && exit 1)
+        # exe ファイルとインストーラーが生成されていることを確認
+        # (wails はインストーラーを作成できなくても警告のみで成功するため)
+        test -f build/bin/pdf-preview-go.exe || (echo "No exe file found" && exit 1)
+        find build/bin -name "*-installer.exe" | grep -q "." || (echo "No installer found" && exit 1)
         
         echo "✅ Windows用ビルドアーティファクトが正常に生成されました"

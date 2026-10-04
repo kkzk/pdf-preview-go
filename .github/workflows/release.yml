@@ -1,9 +1,11 @@
 name: Build and Release (Windows)
 
+# A release is created by pushing a version tag, e.g.:
+#   git tag v0.2.0 && git push origin v0.2.0
+# Tags with a suffix (e.g. v0.3.0-beta.1) are published as pre-releases.
 on:
   push:
-    branches: [ master, main ]
-    tags: [ 'v*' ]
+    tags: [ 'v*.*.*' ]
 
 env:
   WAILS_VERSION: v2.16.0
@@ -11,12 +13,32 @@ env:
 jobs:
   build-windows:
     runs-on: windows-latest
-    
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-      with:
-        submodules: recursive
+
+    - name: Set version from tag
+      id: version
+      shell: pwsh
+      run: |
+        $tag = "${{ github.ref_name }}"
+        if ($tag -notmatch '^v((\d+\.\d+\.\d+)(-[0-9A-Za-z.-]+)?)$') {
+          Write-Error "Tag '$tag' is not a version tag like v1.2.3 or v1.2.3-beta.1"
+          exit 1
+        }
+        $version = $Matches[1]      # e.g. 0.3.0-beta.1 (used in file names)
+        $coreVersion = $Matches[2]  # e.g. 0.3.0
+        "version=$version" >> $env:GITHUB_OUTPUT
+
+        # Embed the version in the exe and the installer. Windows version
+        # resources and NSIS accept only numbers, so the suffix is left out.
+        $config = Get-Content wails.json -Raw | ConvertFrom-Json
+        $config.Info.productVersion = $coreVersion
+        $config | ConvertTo-Json -Depth 10 | Set-Content wails.json -Encoding utf8
+        Write-Host "Version: $version (product version $coreVersion)"
 
     - name: Setup Go
       uses: actions/setup-go@v5
@@ -39,24 +61,32 @@ jobs:
       run: npm ci
 
     - name: Install NSIS
-      run: choco install nsis -y
-        
+      shell: pwsh
+      run: |
+        choco install nsis -y
+        # choco does not update PATH for later steps; wails needs makensis
+        "${env:ProgramFiles(x86)}\NSIS" >> $env:GITHUB_PATH
+
     - name: Build Windows Application with Installer
       run: wails build -platform windows/amd64 -nsis
 
     - name: Prepare artifacts
       shell: bash
       run: |
+        version="${{ steps.version.outputs.version }}"
         mkdir -p dist
-        
-        echo "Contents of build directory:"
-        find build -type f 2>/dev/null || echo "Build directory not found"
-        
-        # Windows用の全ての.exeファイルをコピー
-        find build -name "*.exe" -exec cp {} dist/ \; 2>/dev/null || true
-        
-        echo "Final dist directory contents:"
-        ls -la dist/ 2>/dev/null || echo "No files in dist directory"
+
+        # wails only warns when the installer cannot be created, so check it here
+        installer=$(find build/bin -name "*-installer.exe" | head -1)
+        if [ -z "$installer" ]; then
+          echo "Installer was not created"
+          ls -la build/bin
+          exit 1
+        fi
+
+        cp "$installer" "dist/pdf-preview-go-v${version}-amd64-installer.exe"
+        cp build/bin/pdf-preview-go.exe "dist/pdf-preview-go-v${version}-amd64.exe"
+        ls -la dist
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
@@ -66,60 +96,41 @@ jobs:
         retention-days: 7
 
   release:
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     needs: build-windows
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
-    
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
 
+    steps:
     - name: Download Windows artifacts
       uses: actions/download-artifact@v4
       with:
         name: pdf-preview-go-windows
         path: release-assets
 
-    - name: Generate release tag
-      id: tag
-      run: |
-        if [[ $GITHUB_REF == refs/tags/* ]]; then
-          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-        else
-          echo "tag=v$(date +'%Y.%m.%d-%H%M%S')" >> $GITHUB_OUTPUT
-        fi
-
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ steps.tag.outputs.tag }}
-        name: PDF Preview Go ${{ steps.tag.outputs.tag }} (Windows)
+        tag_name: ${{ github.ref_name }}
+        name: PDF Preview Go ${{ github.ref_name }}
         body: |
-          ## PDF Preview Go ${{ steps.tag.outputs.tag }} - Windows版
-          
-          Windows用自動ビルドリリースです。
-          
+          ## PDF Preview Go ${{ github.ref_name }} - Windows版
+
           ### インストール方法
-          1. `pdf-preview-go-*-installer.exe` をダウンロード（推奨）
+          1. `pdf-preview-go-${{ github.ref_name }}-amd64-installer.exe` をダウンロード（推奨）
           2. インストーラーを実行してセットアップ
-          
+
           ### 単体実行の場合
-          1. `pdf-preview-go.exe` をダウンロード
+          1. `pdf-preview-go-${{ github.ref_name }}-amd64.exe` をダウンロード
           2. 任意のフォルダに保存して直接実行
-          
+
           ### システム要件
           - Windows 10 64-bit 以降
           - Microsoft Edge WebView2 ランタイム（Windows 11 には標準搭載。未導入の場合はインストーラーが導入します）
           - Microsoft Office（Excel / Word。Office ファイルを PDF に変換するために使用）
-          
-          ### 最新の変更内容
-          コミット: ${{ github.sha }}
         files: release-assets/*
         draft: false
-        prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        prerelease: ${{ contains(github.ref_name, '-') }}
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

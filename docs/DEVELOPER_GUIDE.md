@@ -77,6 +77,22 @@ VS Codeでのデバッグが設定済みです：
 - `main_window.py` および `saveAsPdf.py` の機能を理解し、Go言語で実装することが目的
 - Pythonサブプロジェクト（`pdf_preview`）は参照のみで変更禁止
 
+## リリース
+
+バージョンは [セマンティックバージョニング](https://semver.org/lang/ja/)（`vX.Y.Z`）で管理します。
+
+1. `wails.json` の `Info.productVersion` をリリースするバージョンに更新して main にマージする（ローカルビルドの表示用。リリースのビルドではタグのバージョンが使われる）
+2. main でタグを作成して push する
+
+   ```powershell
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+3. GitHub Actions（`release.yml`）がインストーラーと単体の exe をビルドし、GitHub Releases に公開する
+   - `v0.3.0-beta.1` のように `-` を含むタグはプレリリースになる
+   - main への push ではリリースは作成されない（CI のビルドとテストのみ）
+
 ## 注意事項
 
 ### バージョン依存
