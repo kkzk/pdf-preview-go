@@ -31,8 +31,8 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# Frontend package-lock files and checksums
-frontend/package-lock.json
+# Frontend lock files of other package managers and checksums
+# (frontend/package-lock.json is committed for reproducible builds)
 frontend/yarn.lock
 frontend/pnpm-lock.yaml
 frontend/package.json.md5
@@ -40,7 +40,6 @@ frontend/package.json.md5
 
 # IDE and Editor files (keep project-specific settings)
 .vscode/settings.json
-.vscode/launch.json
 .idea/
 *.swp
 *.swo

@@ -29,14 +29,14 @@ jobs:
       with:
         node-version: '18'
         cache: 'npm'
-        cache-dependency-path: frontend/package.json
+        cache-dependency-path: frontend/package-lock.json
 
     - name: Install Wails
       run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
     - name: Install frontend dependencies
       working-directory: frontend
-      run: npm install
+      run: npm ci
 
     - name: Install NSIS
       run: choco install nsis -y
@@ -112,7 +112,8 @@ jobs:
           
           ### システム要件
           - Windows 10 64-bit 以降
-          - .NET Framework（通常は既にインストール済み）
+          - Microsoft Edge WebView2 ランタイム（Windows 11 には標準搭載。未導入の場合はインストーラーが導入します）
+          - Microsoft Office（Excel / Word。Office ファイルを PDF に変換するために使用）
           
           ### 最新の変更内容
           コミット: ${{ github.sha }}
