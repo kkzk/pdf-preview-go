@@ -69,6 +69,11 @@ jobs:
     - name: Run go vet
       run: go vet .
 
+    # Office (Excel/Word) is not installed on the runner, so Office tests are skipped
+    - name: Run go test
+      shell: bash
+      run: CGO_ENABLED=1 go test -short -race -count=1 ./...
+
     # ビルドされたファイルが存在することを確認
     - name: Verify build artifacts
       shell: bash
