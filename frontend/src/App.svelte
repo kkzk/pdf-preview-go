@@ -10,9 +10,7 @@
     GetInitialDirectory,
     HasUnsavedChanges,
     LoadDirectorySessionCache,
-    LoadSheetSelectionsForDirectory,
     SaveDirectorySessionCache,
-    SaveSheetSelectionsForDirectory,
     SetAutoUpdateEnabled,
     SetWindowTitle,
     ShowSaveDialog,
@@ -88,19 +86,6 @@
           await loadDirectorySession(initialDir)
         } catch (error) {
           addLog(`セッション状態の読み込みでエラー: ${error}`)
-
-          // Fallback to loading only sheet selections
-          try {
-            const savedSelections = await LoadSheetSelectionsForDirectory()
-            if (savedSelections && Object.keys(savedSelections).length > 0) {
-              sheetSelections = savedSelections
-              addLog(
-                `保存されたシート選択を読み込みました (${Object.keys(savedSelections).length}ファイル)`
-              )
-            }
-          } catch (fallbackError) {
-            addLog(`シート選択の読み込みでエラー: ${fallbackError}`)
-          }
         }
 
         addLog(`作業ディレクトリを設定しました: ${initialDir}`)
@@ -142,20 +127,6 @@
         addLog(`作業フォルダを変更し、前回の状態を復元しました: ${newDir}`)
       } catch (error) {
         addLog(`セッション状態の読み込みでエラー: ${error}`)
-
-        // Fallback to loading only sheet selections
-        try {
-          const savedSelections = await LoadSheetSelectionsForDirectory()
-          if (savedSelections && Object.keys(savedSelections).length > 0) {
-            sheetSelections = savedSelections
-            addLog(
-              `新しいディレクトリのシート選択を読み込みました (${Object.keys(savedSelections).length}ファイル)`
-            )
-          }
-        } catch (fallbackError) {
-          addLog(`シート選択の読み込みでエラー: ${fallbackError}`)
-        }
-
         addLog(`作業フォルダを変更しました: ${newDir}`)
       }
     })
@@ -284,22 +255,13 @@
       currentFile = file
       excelSheets = await GetExcelSheets(file.path)
 
-      // Initialize sheet selections if not exists
+      // Initialize sheet selections if not exists (saved selections are
+      // restored with the directory session)
       if (!sheetSelections[file.path]) {
-        // Check if we have saved selections for this file
-        const savedSelections = await LoadSheetSelectionsForDirectory()
-        if (savedSelections && savedSelections[file.path]) {
-          // Use saved selections
-          sheetSelections[file.path] = savedSelections[file.path]
-          addLog(
-            `保存されたシート選択を復元: ${file.name} [${sheetSelections[file.path].join(', ')}]`
-          )
-        } else {
-          // Default: select all visible sheets
-          sheetSelections[file.path] = excelSheets
-            .filter(sheet => sheet.visible)
-            .map(sheet => sheet.name)
-        }
+        // Default: select all visible sheets
+        sheetSelections[file.path] = excelSheets
+          .filter(sheet => sheet.visible)
+          .map(sheet => sheet.name)
       }
 
       reconcileSheetSelection(file, excelSheets)
@@ -333,7 +295,6 @@
     sheetSelections = { ...sheetSelections }
     addLog(`存在しないシートを選択から外しました: ${file.name} [${removed.join(', ')}]`)
 
-    saveSheetSelections()
     debouncedSaveSession()
   }
 
@@ -357,21 +318,8 @@
     sheetSelections = { ...sheetSelections }
     addLog(`${currentFile.name}の選択シート: [${sheetSelections[filePath].join(', ')}]`)
 
-    // Save sheet selections automatically
-    saveSheetSelections()
-
-    // Debounced session save
+    // Debounced session save (includes sheet selections)
     debouncedSaveSession()
-  }
-
-  // Save sheet selections to cache
-  async function saveSheetSelections() {
-    try {
-      await SaveSheetSelectionsForDirectory(sheetSelections)
-    } catch (error) {
-      // Silently handle save errors - not critical for user experience
-      console.warn('Failed to save sheet selections:', error)
-    }
   }
 
   // Event handlers for SelectedFilesPanel

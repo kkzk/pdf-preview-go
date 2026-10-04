@@ -3,15 +3,17 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
 
 // GetDirectoryHistory returns the list of recently used directories
 func (a *App) GetDirectoryHistory() ([]DirectoryHistory, error) {
-	cacheFilePath := filepath.Join(os.TempDir(), "pdf-preview-go-cache", "directory_history.json")
+	cacheFilePath := historyFilePath()
 
 	// Check if cache file exists
 	if _, err := os.Stat(cacheFilePath); os.IsNotExist(err) {
@@ -39,13 +41,9 @@ func (a *App) GetDirectoryHistory() ([]DirectoryHistory, error) {
 	}
 
 	// Sort by last used time (most recent first)
-	for i := 0; i < len(validHistory)-1; i++ {
-		for j := i + 1; j < len(validHistory); j++ {
-			if validHistory[i].LastUsed.Before(validHistory[j].LastUsed) {
-				validHistory[i], validHistory[j] = validHistory[j], validHistory[i]
-			}
-		}
-	}
+	sort.Slice(validHistory, func(i, j int) bool {
+		return validHistory[i].LastUsed.After(validHistory[j].LastUsed)
+	})
 
 	// Keep only the most recent 20 directories
 	if len(validHistory) > 20 {
@@ -110,7 +108,7 @@ func (a *App) AddDirectoryToHistory(dirPath string) error {
 	}
 
 	// Save updated history
-	cacheFilePath := filepath.Join(os.TempDir(), "pdf-preview-go-cache", "directory_history.json")
+	cacheFilePath := historyFilePath()
 	os.MkdirAll(filepath.Dir(cacheFilePath), 0755)
 
 	data, err := json.MarshalIndent(history, "", "  ")
@@ -137,8 +135,8 @@ func (a *App) SaveDirectorySessionCache(dirPath string, selectedFiles []string, 
 		absPath = dirPath
 	}
 
-	dirHash := a.createDirectoryHash(absPath)
-	cacheFilePath := filepath.Join(os.TempDir(), "pdf-preview-go-cache", fmt.Sprintf("session_%s.json", dirHash))
+	dirHash := directoryHash(absPath)
+	cacheFilePath := sessionFilePath(absPath)
 
 	// Create cache directory if it doesn't exist
 	os.MkdirAll(filepath.Dir(cacheFilePath), 0755)
@@ -180,8 +178,7 @@ func (a *App) LoadDirectorySessionCache(dirPath string) (*DirectorySessionCache,
 		absPath = dirPath
 	}
 
-	dirHash := a.createDirectoryHash(absPath)
-	cacheFilePath := filepath.Join(os.TempDir(), "pdf-preview-go-cache", fmt.Sprintf("session_%s.json", dirHash))
+	cacheFilePath := sessionFilePath(absPath)
 
 	// Check if cache file exists
 	if _, err := os.Stat(cacheFilePath); os.IsNotExist(err) {
@@ -240,7 +237,7 @@ func (a *App) LoadDirectorySessionCache(dirPath string) (*DirectorySessionCache,
 
 // CleanupDirectorySessionCache removes old session cache files
 func (a *App) CleanupDirectorySessionCache(maxAge time.Duration) error {
-	cacheDir := filepath.Join(os.TempDir(), "pdf-preview-go-cache")
+	cacheDir := dataDir()
 	entries, err := os.ReadDir(cacheDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -293,8 +290,21 @@ func (a *App) CleanupDirectorySessionCache(maxAge time.Duration) error {
 	}
 
 	if cleaned > 0 {
-		fmt.Printf("Cleaned up %d old session cache files\n", cleaned)
+		log.Printf("Cleaned up %d old session cache files", cleaned)
 	}
 
 	return nil
+}
+
+// existingFileSelections returns the sheet selections of files that still exist.
+// Selections are kept even if a file has been modified: sheet names that no
+// longer exist are dropped by the frontend when it loads the sheet list.
+func existingFileSelections(selections map[string][]string) map[string][]string {
+	valid := make(map[string][]string)
+	for path, sheets := range selections {
+		if _, err := os.Stat(path); err == nil {
+			valid[path] = sheets
+		}
+	}
+	return valid
 }

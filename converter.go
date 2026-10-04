@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,7 +16,6 @@ import (
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
-	"github.com/tealeg/xlsx/v3"
 )
 
 // OfficeConverter handles conversion of Office documents to PDF
@@ -105,7 +105,7 @@ func cacheFileName(srcPath string, selectedSheets []string) string {
 // (for the up-to-date check) and its access time to now (for cleanup)
 func markCacheUsed(outputPath string, srcModTime time.Time) {
 	if err := os.Chtimes(outputPath, time.Now(), srcModTime); err != nil {
-		fmt.Printf("Warning: failed to set cache file times: %v\n", err)
+		log.Printf("Warning: failed to set cache file times: %v", err)
 	}
 }
 
@@ -126,6 +126,28 @@ func withCOM(fn func() error) error {
 
 // convertExcelToPDF converts Excel file to PDF using Excel application
 func (c *OfficeConverter) convertExcelToPDF(srcPath, outputPath string, selectedSheets []string) error {
+	return withExcelWorkbook(srcPath, func(wb *ole.IDispatch) error {
+		// Handle sheet selection: leave only the selected sheets visible
+		if len(selectedSheets) > 0 {
+			if err := showOnlySelectedSheets(wb, selectedSheets); err != nil {
+				return err
+			}
+			log.Printf("Exporting workbook with selected sheets only")
+		} else {
+			log.Printf("No specific sheets selected, exporting entire workbook")
+		}
+
+		// Export entire workbook (only visible sheets are exported)
+		if _, err := oleutil.CallMethod(wb, "ExportAsFixedFormat", 0, outputPath, 0); err != nil {
+			return fmt.Errorf("failed to export Excel to PDF: %v", err)
+		}
+		return nil
+	})
+}
+
+// withExcelWorkbook opens a workbook read-only in Excel, calls fn with it and
+// closes it without saving. Must be called within withCOM.
+func withExcelWorkbook(path string, fn func(wb *ole.IDispatch) error) error {
 	// Create Excel application
 	unknown, err := oleutil.CreateObject("Excel.Application")
 	if err != nil {
@@ -146,8 +168,8 @@ func (c *OfficeConverter) convertExcelToPDF(srcPath, outputPath string, selected
 	}
 	defer cleanup()
 
-	// Open workbook
-	workbook, err := oleutil.CallMethod(workbooks, "Open", srcPath, false, true)
+	// Open workbook read-only
+	workbook, err := oleutil.CallMethod(workbooks, "Open", path, false, true)
 	if err != nil {
 		return fmt.Errorf("failed to open Excel file: %v", err)
 	}
@@ -157,25 +179,7 @@ func (c *OfficeConverter) convertExcelToPDF(srcPath, outputPath string, selected
 		workbook.Clear()
 	}()
 
-	wb := workbook.ToIDispatch()
-
-	// Handle sheet selection: leave only the selected sheets visible
-	if len(selectedSheets) > 0 {
-		if err := showOnlySelectedSheets(wb, selectedSheets); err != nil {
-			return err
-		}
-		fmt.Printf("Exporting workbook with selected sheets only\n")
-	} else {
-		fmt.Printf("No specific sheets selected, exporting entire workbook\n")
-	}
-
-	// Export entire workbook (only visible sheets are exported)
-	_, err = oleutil.CallMethod(wb, "ExportAsFixedFormat", 0, outputPath, 0)
-	if err != nil {
-		return fmt.Errorf("failed to export Excel to PDF: %v", err)
-	}
-
-	return nil
+	return fn(workbook.ToIDispatch())
 }
 
 // Excel XlSheetVisibility values
@@ -237,7 +241,7 @@ func showOnlySelectedSheets(wb *ole.IDispatch, selectedSheets []string) error {
 		if !selected[s.name] {
 			continue
 		}
-		fmt.Printf("Keeping sheet visible: %s\n", s.name)
+		log.Printf("Keeping sheet visible: %s", s.name)
 		if _, err := oleutil.PutProperty(s.sheet, "Visible", xlSheetVisible); err != nil {
 			return fmt.Errorf("failed to show sheet %q: %v", s.name, err)
 		}
@@ -247,7 +251,7 @@ func showOnlySelectedSheets(wb *ole.IDispatch, selectedSheets []string) error {
 		return fmt.Errorf("selected sheets not found in workbook: %s", strings.Join(selectedSheets, ", "))
 	}
 	if found < len(selected) {
-		fmt.Printf("Warning: some selected sheets were not found: %s\n", strings.Join(selectedSheets, ", "))
+		log.Printf("Warning: some selected sheets were not found: %s", strings.Join(selectedSheets, ", "))
 	}
 
 	// Then hide the others
@@ -255,7 +259,7 @@ func showOnlySelectedSheets(wb *ole.IDispatch, selectedSheets []string) error {
 		if selected[s.name] {
 			continue
 		}
-		fmt.Printf("Hiding sheet: %s\n", s.name)
+		log.Printf("Hiding sheet: %s", s.name)
 		if _, err := oleutil.PutProperty(s.sheet, "Visible", xlSheetHidden); err != nil {
 			return fmt.Errorf("failed to hide sheet %q: %v", s.name, err)
 		}
@@ -343,7 +347,7 @@ func prepareOfficeApp(app *ole.IDispatch, collectionName string, quitArgs ...int
 			}
 		} else if collectionCount(collection) == 0 {
 			if _, err := oleutil.CallMethod(app, "Quit", quitArgs...); err != nil {
-				fmt.Printf("Warning: failed to quit Office application: %v\n", err)
+				log.Printf("Warning: failed to quit Office application: %v", err)
 			}
 		}
 		collection.Release()
@@ -369,25 +373,6 @@ func collectionCount(collection *ole.IDispatch) int {
 		return -1
 	}
 	return int(v.Val)
-}
-
-// GetExcelSheetsInfo returns information about sheets in an Excel file
-func GetExcelSheetsInfo(filePath string) ([]ExcelSheetInfo, error) {
-	file, err := xlsx.OpenFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open Excel file: %v", err)
-	}
-
-	var sheets []ExcelSheetInfo
-	for i, sheet := range file.Sheets {
-		sheets = append(sheets, ExcelSheetInfo{
-			Name:    sheet.Name,
-			Visible: !sheet.Hidden, // xlsx library uses Hidden property
-			Index:   i,
-		})
-	}
-
-	return sheets, nil
 }
 
 // MergePDFs combines multiple PDF files into one using pdfcpu library
@@ -471,7 +456,7 @@ func (c *OfficeConverter) CleanupCache(maxAge time.Duration) error {
 		if lastUsed(info).Before(cutoff) {
 			filePath := filepath.Join(c.cacheDir, entry.Name())
 			if err := os.Remove(filePath); err != nil {
-				fmt.Printf("Warning: could not remove cache file %s: %v\n", filePath, err)
+				log.Printf("Warning: could not remove cache file %s: %v", filePath, err)
 			}
 		}
 	}

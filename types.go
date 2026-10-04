@@ -61,14 +61,6 @@ type ConversionStatus struct {
 	ErrorMessage string `json:"errorMessage"` // Error message if status is "error"
 }
 
-// SheetSelectionCache represents cached sheet selections for a directory
-type SheetSelectionCache struct {
-	DirectoryHash string              `json:"directoryHash"` // MD5 hash of directory path
-	LastUpdated   time.Time           `json:"lastUpdated"`   // When cache was last updated
-	Selections    map[string][]string `json:"selections"`    // File path -> selected sheets
-	ExpiryTime    time.Time           `json:"expiryTime"`    // When cache expires
-}
-
 // DirectoryHistory represents history of directory usage
 type DirectoryHistory struct {
 	Path        string    `json:"path"`        // Directory path

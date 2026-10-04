@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,7 +107,7 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 
 	// Start watching the directory of the first file
 	if err := a.StartWatchingDirectory(filepath.Dir(filePaths[0])); err != nil {
-		fmt.Printf("Warning: failed to watch directory: %v\n", err)
+		log.Printf("Warning: failed to watch directory: %v", err)
 	}
 
 	return pdfURL, nil

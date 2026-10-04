@@ -38,14 +38,12 @@ func main() {
 		// Convert to absolute path
 		absDir, err := filepath.Abs(targetDir)
 		if err != nil {
-			println("Error resolving directory path:", err.Error())
-			os.Exit(1)
+			log.Fatalf("Error resolving directory path: %v", err)
 		}
 
 		// Check if directory exists
 		if _, err := os.Stat(absDir); os.IsNotExist(err) {
-			println("Directory does not exist:", absDir)
-			os.Exit(1)
+			log.Fatalf("Directory does not exist: %s", absDir)
 		}
 
 		initialDir = absDir
@@ -53,8 +51,7 @@ func main() {
 		// Use current working directory if no argument provided
 		cwd, err := os.Getwd()
 		if err != nil {
-			println("Error getting current directory:", err.Error())
-			os.Exit(1)
+			log.Fatalf("Error getting current directory: %v", err)
 		}
 		initialDir = cwd
 	}
@@ -119,6 +116,5 @@ func main() {
 
 	if err != nil {
 		log.Printf("Wails application error: %v", err)
-		println("Error:", err.Error())
 	}
 }
