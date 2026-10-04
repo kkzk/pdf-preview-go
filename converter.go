@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/md5"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -16,6 +17,12 @@ import (
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+)
+
+// Conversion errors that do not go away by retrying
+var (
+	ErrUnsupportedFileType = errors.New("unsupported file type")
+	ErrSheetsNotFound      = errors.New("selected sheets not found in workbook")
 )
 
 // OfficeConverter handles conversion of Office documents to PDF
@@ -77,7 +84,7 @@ func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets []string) 
 			return c.convertWordToPDF(srcPath, outputPath)
 		})
 	default:
-		return "", fmt.Errorf("unsupported file type: %s", ext)
+		return "", fmt.Errorf("%w: %s", ErrUnsupportedFileType, ext)
 	}
 
 	if err != nil {
@@ -248,7 +255,7 @@ func showOnlySelectedSheets(wb *ole.IDispatch, selectedSheets []string) error {
 		found++
 	}
 	if found == 0 {
-		return fmt.Errorf("selected sheets not found in workbook: %s", strings.Join(selectedSheets, ", "))
+		return fmt.Errorf("%w: %s", ErrSheetsNotFound, strings.Join(selectedSheets, ", "))
 	}
 	if found < len(selected) {
 		log.Printf("Warning: some selected sheets were not found: %s", strings.Join(selectedSheets, ", "))

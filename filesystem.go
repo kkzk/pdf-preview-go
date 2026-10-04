@@ -5,9 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/windows"
 )
 
-// GetDirectoryContents returns file tree structure for a given directory
+// GetDirectoryContents returns the folders and supported files directly in a
+// directory. The tree is loaded one level at a time as folders are expanded,
+// so that large or cloud-backed (e.g. Box Drive) folders open quickly.
 func (a *App) GetDirectoryContents(dirPath string) ([]FileInfo, error) {
 	if dirPath == "" {
 		return nil, fmt.Errorf("directory path is empty")
@@ -18,84 +22,20 @@ func (a *App) GetDirectoryContents(dirPath string) ([]FileInfo, error) {
 		return nil, err
 	}
 
-	var files []FileInfo
+	files := []FileInfo{} // Empty (not null) for an empty folder
 	for _, entry := range entries {
 		info, err := entry.Info()
 		if err != nil {
 			continue
 		}
 
-		// Office files and PDFs only
+		// Office files and PDFs only, excluding Office lock files (~$Book.xlsx)
 		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if !entry.IsDir() && !isOfficeFile(ext) {
+		if !entry.IsDir() && (!isOfficeFile(ext) || strings.HasPrefix(entry.Name(), "~$")) {
 			continue
 		}
 
-		fileInfo := FileInfo{
-			Name:    entry.Name(),
-			Path:    filepath.Join(dirPath, entry.Name()),
-			Size:    info.Size(),
-			IsDir:   entry.IsDir(),
-			ModTime: info.ModTime().Format("2006-01-02 15:04:05"),
-		}
-
-		files = append(files, fileInfo)
-	}
-
-	return files, nil
-}
-
-// GetDirectoryTree returns a recursive file tree structure for a given directory
-func (a *App) GetDirectoryTree(dirPath string) ([]FileInfo, error) {
-	if dirPath == "" {
-		return nil, fmt.Errorf("directory path is empty")
-	}
-
-	return a.buildDirectoryTree(dirPath, 0, 3) // Max depth of 3 levels
-}
-
-// buildDirectoryTree recursively builds directory tree
-func (a *App) buildDirectoryTree(dirPath string, currentDepth, maxDepth int) ([]FileInfo, error) {
-	if currentDepth >= maxDepth {
-		return nil, nil
-	}
-
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return nil, err
-	}
-
-	var files []FileInfo
-	for _, entry := range entries {
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-
-		// For directories, always include them
-		// For files, only include Office files and PDFs
-		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if !entry.IsDir() && !isOfficeFile(ext) {
-			continue
-		}
-
-		fileInfo := FileInfo{
-			Name:    entry.Name(),
-			Path:    filepath.Join(dirPath, entry.Name()),
-			Size:    info.Size(),
-			IsDir:   entry.IsDir(),
-			ModTime: info.ModTime().Format("2006-01-02 15:04:05"),
-		}
-
-		// If it's a directory, recursively get its contents
-		if entry.IsDir() {
-			children, err := a.buildDirectoryTree(fileInfo.Path, currentDepth+1, maxDepth)
-			if err == nil {
-				fileInfo.Children = children
-			}
-		}
-
-		files = append(files, fileInfo)
+		files = append(files, newFileInfo(filepath.Join(dirPath, entry.Name()), info))
 	}
 
 	return files, nil
@@ -110,6 +50,32 @@ func isOfficeFile(ext string) bool {
 		}
 	}
 	return false
+}
+
+// GetFilesInfo returns information about the given files, skipping files
+// that no longer exist. Used to restore selections without loading the
+// folders that contain them.
+func (a *App) GetFilesInfo(filePaths []string) []FileInfo {
+	files := []FileInfo{}
+	for _, filePath := range filePaths {
+		info, err := os.Stat(filePath)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		files = append(files, newFileInfo(filePath, info))
+	}
+	return files
+}
+
+// newFileInfo creates a FileInfo for a path
+func newFileInfo(path string, info os.FileInfo) FileInfo {
+	return FileInfo{
+		Name:    info.Name(),
+		Path:    path,
+		Size:    info.Size(),
+		IsDir:   info.IsDir(),
+		ModTime: info.ModTime().Format("2006-01-02 15:04:05"),
+	}
 }
 
 // GetFileInfo returns basic file information
@@ -130,4 +96,33 @@ func (a *App) GetFileInfo(filePath string) (map[string]interface{}, error) {
 		"dir":     filepath.Dir(filePath),
 		"modTime": info.ModTime(),
 	}, nil
+}
+
+// OpenFile opens a file with its associated application (Excel, Word, a PDF
+// viewer, ...). Only existing files of the types shown in the tree are opened.
+func (a *App) OpenFile(filePath string) error {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return fmt.Errorf("file not found: %v", err)
+	}
+	if info.IsDir() || !isOfficeFile(strings.ToLower(filepath.Ext(filePath))) {
+		return fmt.Errorf("%w: %s", ErrUnsupportedFileType, filepath.Ext(filePath))
+	}
+
+	verb, err := windows.UTF16PtrFromString("open")
+	if err != nil {
+		return err
+	}
+	file, err := windows.UTF16PtrFromString(filePath)
+	if err != nil {
+		return err
+	}
+	dir, err := windows.UTF16PtrFromString(filepath.Dir(filePath))
+	if err != nil {
+		return err
+	}
+	if err := windows.ShellExecute(0, verb, file, nil, dir, windows.SW_SHOWNORMAL); err != nil {
+		return fmt.Errorf("failed to open %s: %v", filepath.Base(filePath), err)
+	}
+	return nil
 }
