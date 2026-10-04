@@ -55,7 +55,7 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 		// Convert file path to HTTP URL with cache buster
 		fileName := filepath.Base(convertedPDFs[0])
 		timestamp := time.Now().UnixNano()
-		pdfURL := fmt.Sprintf("http://localhost:%d/pdf/%s?v=%d", a.httpPort, fileName, timestamp)
+		pdfURL := buildPdfURL(fileName, timestamp)
 
 		runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
 			Status:     "completed",
@@ -107,7 +107,7 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 
 	// Convert merged file path to HTTP URL with cache buster
 	timestampCacheBuster := time.Now().UnixNano()
-	pdfURL := fmt.Sprintf("http://localhost:%d/pdf/%s?v=%d", a.httpPort, mergedFileName, timestampCacheBuster)
+	pdfURL := buildPdfURL(mergedFileName, timestampCacheBuster)
 
 	runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
 		Status:     "completed",

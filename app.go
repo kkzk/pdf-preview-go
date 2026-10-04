@@ -17,7 +17,6 @@ func NewApp(initialDir string) *App {
 	app := &App{
 		converter:           NewOfficeConverter(cacheDir),
 		initialDir:          initialDir,
-		httpPort:            0, // Will be set when server starts
 		watchedDir:          "",
 		lastConvertedFiles:  []string{},
 		lastConvertedSheets: make(map[string][]string),
@@ -35,9 +34,6 @@ func NewApp(initialDir string) *App {
 // is the app's context. Additional initialization can be done here.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
-
-	// Start HTTP server for serving PDF files
-	a.startHTTPServer()
 
 	// Initialize file watcher
 	a.initFileWatcher()
@@ -67,9 +63,6 @@ func (a *App) Shutdown(ctx context.Context) {
 	}
 	if a.watcher != nil {
 		a.watcher.Close()
-	}
-	if a.httpServer != nil {
-		a.httpServer.Close()
 	}
 	// Note: OfficeConverter doesn't have a Close method
 	// COM objects are automatically cleaned up

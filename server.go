@@ -2,54 +2,32 @@ package main
 
 import (
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
-	"time"
+	"strings"
 )
 
-// startHTTPServer starts a local HTTP server to serve PDF files
-func (a *App) startHTTPServer() {
-	// Find available port
-	for port := 8080; port < 8090; port++ {
-		mux := http.NewServeMux()
+// pdfURLPrefix is the URL path under which converted PDFs are served
+const pdfURLPrefix = "/pdf/"
 
-		// Serve PDF files from cache directory
-		cacheDir := filepath.Join(os.TempDir(), "pdf-preview-go-cache")
-		mux.Handle("/pdf/", http.StripPrefix("/pdf/", http.FileServer(http.Dir(cacheDir))))
+// pdfHandler returns a handler that serves PDF files from the cache directory.
+// It is registered as the Wails AssetServer handler, so PDFs are served from
+// the same origin as the frontend and are not reachable from outside the app.
+func (a *App) pdfHandler() http.Handler {
+	fileServer := http.StripPrefix(pdfURLPrefix, http.FileServer(http.Dir(a.converter.cacheDir)))
 
-		// Add CORS headers for WebView compatibility
-		corsHandler := func(h http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Access-Control-Allow-Origin", "*")
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "*")
-				if r.Method == "OPTIONS" {
-					w.WriteHeader(http.StatusOK)
-					return
-				}
-				h.ServeHTTP(w, r)
-			})
-		}
-
-		a.httpServer = &http.Server{
-			Addr:    ":" + strconv.Itoa(port),
-			Handler: corsHandler(mux),
-		}
-
-		go func() {
-			if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				// Port might be in use, try next one
-			}
-		}()
-
-		// Test if server started successfully
-		time.Sleep(100 * time.Millisecond)
-		resp, err := http.Get("http://localhost:" + strconv.Itoa(port) + "/pdf/")
-		if err == nil {
-			resp.Body.Close()
-			a.httpPort = port
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Serve PDF files only (no directory listing, no session JSON)
+		if !strings.HasPrefix(r.URL.Path, pdfURLPrefix) ||
+			!strings.EqualFold(filepath.Ext(r.URL.Path), ".pdf") {
+			http.NotFound(w, r)
 			return
 		}
-	}
+		fileServer.ServeHTTP(w, r)
+	})
+}
+
+// buildPdfURL returns the URL of a cached PDF file with a cache buster
+func buildPdfURL(fileName string, version int64) string {
+	return pdfURLPrefix + fileName + "?v=" + strconv.FormatInt(version, 10)
 }

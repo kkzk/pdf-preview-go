@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -13,8 +12,6 @@ type App struct {
 	ctx                 context.Context
 	converter           *OfficeConverter
 	initialDir          string // Initial directory to open
-	httpServer          *http.Server
-	httpPort            int
 	watcher             *fsnotify.Watcher
 	watchedDir          string
 	lastConvertedFiles  []string
