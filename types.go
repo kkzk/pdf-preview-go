@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -9,19 +10,29 @@ import (
 
 // App struct
 type App struct {
-	ctx                 context.Context
-	converter           *OfficeConverter
-	initialDir          string // Initial directory to open
-	watcher             *fsnotify.Watcher
+	ctx        context.Context
+	converter  *OfficeConverter
+	initialDir string // Initial directory to open
+	watcher    *fsnotify.Watcher
+
+	// convertMu serializes conversions so that only one runs at a time
+	convertMu sync.Mutex
+	// regenerateCh receives auto-regeneration requests (buffered, size 1)
+	regenerateCh chan struct{}
+	// stopCh is closed on shutdown to stop background goroutines
+	stopCh chan struct{}
+
+	// mu guards the fields below, which are accessed from the file watcher,
+	// the polling goroutine and frontend calls
+	mu                  sync.Mutex
 	watchedDir          string
 	lastConvertedFiles  []string
 	lastConvertedSheets map[string][]string
 	autoUpdateEnabled   bool
 	fileModTimes        map[string]time.Time // Track file modification times
-	pollingTicker       *time.Ticker
-	currentPdfPath      string // Current PDF file path in temp
-	savedPdfPath        string // Last saved PDF path
-	hasUnsavedChanges   bool   // Whether there are unsaved changes
+	currentPdfPath      string               // Current PDF file path in temp
+	savedPdfPath        string               // Last saved PDF path
+	hasUnsavedChanges   bool                 // Whether there are unsaved changes
 }
 
 // FileInfo represents file information

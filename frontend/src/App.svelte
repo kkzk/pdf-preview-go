@@ -205,8 +205,7 @@
     EventsOn('file-changed', data => {
       const fileName = data.file.split('\\').pop() || data.file.split('/').pop()
       addLog(`ファイルが変更されました: ${fileName} - PDFを自動更新中...`)
-      // Force PDF viewer reload when file changes
-      pdfViewerKey++
+      // The viewer reloads when the regenerated PDF URL arrives
     })
 
     // Listen for conversion events

@@ -79,7 +79,10 @@ func (a *App) SetWindowTitle(dirPath string) {
 
 // ShowSaveDialog shows the save dialog and saves the PDF
 func (a *App) ShowSaveDialog() error {
-	if a.currentPdfPath == "" {
+	a.mu.Lock()
+	hasPdf := a.currentPdfPath != ""
+	a.mu.Unlock()
+	if !hasPdf {
 		return fmt.Errorf("no PDF to save")
 	}
 

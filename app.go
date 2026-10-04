@@ -25,6 +25,8 @@ func NewApp(initialDir string) *App {
 		currentPdfPath:      "",
 		savedPdfPath:        "",
 		hasUnsavedChanges:   false,
+		regenerateCh:        make(chan struct{}, 1),
+		stopCh:              make(chan struct{}),
 	}
 
 	return app
@@ -35,8 +37,10 @@ func NewApp(initialDir string) *App {
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 
-	// Initialize file watcher
+	// Initialize file watcher, polling and auto-regeneration
 	a.initFileWatcher()
+	go a.pollFileModifications()
+	go a.regenerateLoop()
 
 	// Clean up old cache files (older than 30 days)
 	go func() {
@@ -58,9 +62,7 @@ func (a *App) Startup(ctx context.Context) {
 
 // Shutdown is called when the app is closing
 func (a *App) Shutdown(ctx context.Context) {
-	if a.pollingTicker != nil {
-		a.pollingTicker.Stop()
-	}
+	close(a.stopCh)
 	if a.watcher != nil {
 		a.watcher.Close()
 	}

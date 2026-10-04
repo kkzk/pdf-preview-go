@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -73,6 +74,11 @@ func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets map[string
 		}
 		return outputPath, nil
 	}
+
+	// COM requires all calls to be made from the thread that initialized it,
+	// so pin this goroutine to its OS thread until COM is uninitialized
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 
 	// Initialize COM
 	if err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED); err != nil {
