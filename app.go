@@ -2,16 +2,15 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"os"
-	"path/filepath"
 	"time"
 )
 
 // NewApp creates a new App application struct
 func NewApp(initialDir string) *App {
 	// Create cache directory
-	cacheDir := filepath.Join(os.TempDir(), "pdf-preview-go-cache")
+	cacheDir := pdfCacheDir()
 	os.MkdirAll(cacheDir, 0755)
 
 	app := &App{
@@ -37,25 +36,25 @@ func NewApp(initialDir string) *App {
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 
+	// Move data stored in the cache directory by earlier versions. This runs
+	// before the frontend loads the directory history and session.
+	migrateLegacyData()
+
 	// Initialize file watcher, polling and auto-regeneration
 	a.initFileWatcher()
 	go a.pollFileModifications()
 	go a.regenerateLoop()
 
-	// Clean up old cache files (older than 30 days)
+	// Clean up old cache files
 	go func() {
-		if err := a.CleanupSheetSelectionsCache(30 * 24 * time.Hour); err != nil {
-			fmt.Printf("Warning: failed to cleanup sheet selection cache: %v\n", err)
-		}
-
 		// Cleanup session cache (older than 3 months)
 		if err := a.CleanupDirectorySessionCache(90 * 24 * time.Hour); err != nil {
-			fmt.Printf("Warning: failed to cleanup session cache: %v\n", err)
+			log.Printf("Warning: failed to cleanup session cache: %v", err)
 		}
 
 		// Also cleanup PDF cache
 		if err := a.converter.CleanupCache(30 * 24 * time.Hour); err != nil {
-			fmt.Printf("Warning: failed to cleanup PDF cache: %v\n", err)
+			log.Printf("Warning: failed to cleanup PDF cache: %v", err)
 		}
 	}()
 }

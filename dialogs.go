@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -19,7 +20,7 @@ func (a *App) GetInitialDirectory() string {
 	if a.initialDir != "" {
 		// Add to directory history when accessed
 		if err := a.AddDirectoryToHistory(a.initialDir); err != nil {
-			fmt.Printf("Warning: failed to add directory to history: %v\n", err)
+			log.Printf("Warning: failed to add directory to history: %v", err)
 		}
 	}
 	return a.initialDir
@@ -61,7 +62,7 @@ func (a *App) ChangeWorkingDirectory() (string, error) {
 
 		// Add to directory history
 		if err := a.AddDirectoryToHistory(dir); err != nil {
-			fmt.Printf("Warning: failed to add directory to history: %v\n", err)
+			log.Printf("Warning: failed to add directory to history: %v", err)
 		}
 
 		// Update window title with new directory
