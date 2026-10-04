@@ -137,67 +137,105 @@ func (c *OfficeConverter) convertExcelToPDF(srcPath, outputPath string, selected
 
 	wb := workbook.ToIDispatch()
 
-	// Handle sheet selection
+	// Handle sheet selection: leave only the selected sheets visible
 	if len(selectedSheets) > 0 {
-		// Get worksheets collection
-		worksheets := oleutil.MustGetProperty(wb, "Worksheets").ToIDispatch()
-		defer worksheets.Release()
-
-		// First, hide all sheets except the selected ones
-		totalSheets := int(oleutil.MustGetProperty(worksheets, "Count").Val)
-
-		// Get all sheet names first
-		var allSheetNames []string
-		for i := 1; i <= totalSheets; i++ {
-			sheet := oleutil.MustGetProperty(worksheets, "Item", i).ToIDispatch()
-			sheetName := oleutil.MustGetProperty(sheet, "Name").ToString()
-			allSheetNames = append(allSheetNames, sheetName)
-			sheet.Release()
+		if err := showOnlySelectedSheets(wb, selectedSheets); err != nil {
+			return err
 		}
-
-		// Hide non-selected sheets
-		for _, sheetName := range allSheetNames {
-			isSelected := false
-			for _, selectedName := range selectedSheets {
-				if sheetName == selectedName {
-					isSelected = true
-					break
-				}
-			}
-
-			sheet := oleutil.MustGetProperty(worksheets, "Item", sheetName).ToIDispatch()
-			if !isSelected {
-				fmt.Printf("Hiding sheet: %s\n", sheetName)
-				// Hide the sheet (xlSheetHidden = 0)
-				oleutil.PutProperty(sheet, "Visible", 0)
-			} else {
-				fmt.Printf("Keeping sheet visible: %s\n", sheetName)
-				// Ensure selected sheets are visible (xlSheetVisible = -1)
-				oleutil.PutProperty(sheet, "Visible", -1)
-			}
-			sheet.Release()
-		}
-
-		// Select the first selected sheet to make it active
-		if len(selectedSheets) > 0 {
-			fmt.Printf("Activating first selected sheet: %s\n", selectedSheets[0])
-			firstSheet := oleutil.MustGetProperty(worksheets, "Item", selectedSheets[0]).ToIDispatch()
-			oleutil.CallMethod(firstSheet, "Select")
-			firstSheet.Release()
-		}
-
 		fmt.Printf("Exporting workbook with selected sheets only\n")
-		// Export entire workbook (now only visible sheets will be exported)
-		_, err = oleutil.CallMethod(wb, "ExportAsFixedFormat", 0, outputPath, 0)
-		if err != nil {
-			return fmt.Errorf("failed to export Excel to PDF: %v", err)
-		}
 	} else {
 		fmt.Printf("No specific sheets selected, exporting entire workbook\n")
-		// Export entire workbook
-		_, err = oleutil.CallMethod(wb, "ExportAsFixedFormat", 0, outputPath, 0)
+	}
+
+	// Export entire workbook (only visible sheets are exported)
+	_, err = oleutil.CallMethod(wb, "ExportAsFixedFormat", 0, outputPath, 0)
+	if err != nil {
+		return fmt.Errorf("failed to export Excel to PDF: %v", err)
+	}
+
+	return nil
+}
+
+// Excel XlSheetVisibility values
+const (
+	xlSheetVisible = -1
+	xlSheetHidden  = 0
+)
+
+// showOnlySelectedSheets makes the selected sheets visible and hides the rest.
+// Selected sheets are shown first, because Excel refuses to hide the last
+// visible sheet. Selected names missing from the workbook are skipped, but it
+// is an error if none of them exist.
+func showOnlySelectedSheets(wb *ole.IDispatch, selectedSheets []string) error {
+	sheetsVar, err := oleutil.GetProperty(wb, "Sheets")
+	if err != nil {
+		return fmt.Errorf("failed to get sheets: %v", err)
+	}
+	sheets := sheetsVar.ToIDispatch()
+	defer sheets.Release()
+
+	count := collectionCount(sheets)
+	if count < 0 {
+		return fmt.Errorf("failed to get sheet count")
+	}
+
+	selected := make(map[string]bool, len(selectedSheets))
+	for _, name := range selectedSheets {
+		selected[name] = true
+	}
+
+	// Collect sheets and their names
+	type namedSheet struct {
+		name  string
+		sheet *ole.IDispatch
+	}
+	var all []namedSheet
+	defer func() {
+		for _, s := range all {
+			s.sheet.Release()
+		}
+	}()
+	for i := 1; i <= count; i++ {
+		sheetVar, err := oleutil.GetProperty(sheets, "Item", i)
 		if err != nil {
-			return fmt.Errorf("failed to export Excel to PDF: %v", err)
+			return fmt.Errorf("failed to get sheet %d: %v", i, err)
+		}
+		sheet := sheetVar.ToIDispatch()
+		nameVar, err := oleutil.GetProperty(sheet, "Name")
+		if err != nil {
+			sheet.Release()
+			return fmt.Errorf("failed to get name of sheet %d: %v", i, err)
+		}
+		all = append(all, namedSheet{name: nameVar.ToString(), sheet: sheet})
+	}
+
+	// Show selected sheets first
+	found := 0
+	for _, s := range all {
+		if !selected[s.name] {
+			continue
+		}
+		fmt.Printf("Keeping sheet visible: %s\n", s.name)
+		if _, err := oleutil.PutProperty(s.sheet, "Visible", xlSheetVisible); err != nil {
+			return fmt.Errorf("failed to show sheet %q: %v", s.name, err)
+		}
+		found++
+	}
+	if found == 0 {
+		return fmt.Errorf("selected sheets not found in workbook: %s", strings.Join(selectedSheets, ", "))
+	}
+	if found < len(selected) {
+		fmt.Printf("Warning: some selected sheets were not found: %s\n", strings.Join(selectedSheets, ", "))
+	}
+
+	// Then hide the others
+	for _, s := range all {
+		if selected[s.name] {
+			continue
+		}
+		fmt.Printf("Hiding sheet: %s\n", s.name)
+		if _, err := oleutil.PutProperty(s.sheet, "Visible", xlSheetHidden); err != nil {
+			return fmt.Errorf("failed to hide sheet %q: %v", s.name, err)
 		}
 	}
 
