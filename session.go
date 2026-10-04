@@ -143,23 +143,6 @@ func (a *App) SaveDirectorySessionCache(dirPath string, selectedFiles []string, 
 	// Create cache directory if it doesn't exist
 	os.MkdirAll(filepath.Dir(cacheFilePath), 0755)
 
-	// Calculate file hashes for validation
-	fileHashes := make(map[string]string)
-	for _, filePath := range selectedFiles {
-		if hash, err := a.calculateFileHash(filePath); err == nil {
-			fileHashes[filePath] = hash
-		}
-	}
-
-	// Add hashes for files in sheet selections
-	for filePath := range sheetSelections {
-		if _, exists := fileHashes[filePath]; !exists {
-			if hash, err := a.calculateFileHash(filePath); err == nil {
-				fileHashes[filePath] = hash
-			}
-		}
-	}
-
 	// Create cache structure
 	cache := DirectorySessionCache{
 		DirectoryPath:   absPath,
@@ -169,7 +152,6 @@ func (a *App) SaveDirectorySessionCache(dirPath string, selectedFiles []string, 
 		ExpandedFolders: expandedFolders,
 		CurrentFile:     currentFile,
 		SheetSelections: sheetSelections,
-		FileHashes:      fileHashes,
 		ExpiryTime:      time.Now().AddDate(0, 3, 0), // Expire after 3 months
 	}
 
@@ -225,19 +207,11 @@ func (a *App) LoadDirectorySessionCache(dirPath string) (*DirectorySessionCache,
 		return nil, nil
 	}
 
-	// Validate selected files exist and haven't changed
+	// Validate selected files still exist (they may have been modified)
 	validSelectedFiles := []string{}
 	for _, filePath := range cache.SelectedFiles {
 		if _, err := os.Stat(filePath); err == nil {
-			// Check file hash if available
-			if expectedHash, exists := cache.FileHashes[filePath]; exists {
-				if currentHash, err := a.calculateFileHash(filePath); err == nil && currentHash == expectedHash {
-					validSelectedFiles = append(validSelectedFiles, filePath)
-				}
-			} else {
-				// No hash available, assume file is valid
-				validSelectedFiles = append(validSelectedFiles, filePath)
-			}
+			validSelectedFiles = append(validSelectedFiles, filePath)
 		}
 	}
 	cache.SelectedFiles = validSelectedFiles
@@ -259,21 +233,7 @@ func (a *App) LoadDirectorySessionCache(dirPath string) (*DirectorySessionCache,
 	}
 
 	// Validate sheet selections
-	validSheetSelections := make(map[string][]string)
-	for filePath, sheets := range cache.SheetSelections {
-		if _, err := os.Stat(filePath); err == nil {
-			// Check file hash if available
-			if expectedHash, exists := cache.FileHashes[filePath]; exists {
-				if currentHash, err := a.calculateFileHash(filePath); err == nil && currentHash == expectedHash {
-					validSheetSelections[filePath] = sheets
-				}
-			} else {
-				// No hash available, assume sheets are valid
-				validSheetSelections[filePath] = sheets
-			}
-		}
-	}
-	cache.SheetSelections = validSheetSelections
+	cache.SheetSelections = existingFileSelections(cache.SheetSelections)
 
 	return &cache, nil
 }

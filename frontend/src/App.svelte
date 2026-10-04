@@ -302,10 +302,39 @@
         }
       }
 
+      reconcileSheetSelection(file, excelSheets)
+
       addLog(`Excelシートを読み込みました: ${file.name}`)
     } catch (error) {
       addLog(`Excelシート読み込みエラー: ${error}`)
     }
+  }
+
+  // Drop selected sheet names that no longer exist in the workbook (e.g. the
+  // sheet was renamed or deleted). If none remain, select all visible sheets.
+  function reconcileSheetSelection(file, sheets) {
+    const selected = sheetSelections[file.path]
+    if (!selected || selected.length === 0) {
+      return
+    }
+
+    const existingNames = new Set(sheets.map(sheet => sheet.name))
+    const kept = selected.filter(name => existingNames.has(name))
+    if (kept.length === selected.length) {
+      return
+    }
+
+    const removed = selected.filter(name => !existingNames.has(name))
+    if (kept.length > 0) {
+      sheetSelections[file.path] = kept
+    } else {
+      sheetSelections[file.path] = sheets.filter(sheet => sheet.visible).map(sheet => sheet.name)
+    }
+    sheetSelections = { ...sheetSelections }
+    addLog(`存在しないシートを選択から外しました: ${file.name} [${removed.join(', ')}]`)
+
+    saveSheetSelections()
+    debouncedSaveSession()
   }
 
   function toggleSheetSelection(sheetName) {
@@ -552,6 +581,9 @@
       // Restore sheet selections
       if (sessionCache.sheetSelections) {
         sheetSelections = sessionCache.sheetSelections
+      }
+      if (currentFile && excelSheets.length > 0) {
+        reconcileSheetSelection(currentFile, excelSheets)
       }
 
       const restoredItems = []

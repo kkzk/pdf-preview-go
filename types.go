@@ -66,7 +66,6 @@ type SheetSelectionCache struct {
 	DirectoryHash string              `json:"directoryHash"` // MD5 hash of directory path
 	LastUpdated   time.Time           `json:"lastUpdated"`   // When cache was last updated
 	Selections    map[string][]string `json:"selections"`    // File path -> selected sheets
-	FileHashes    map[string]string   `json:"fileHashes"`    // File path -> file content hash
 	ExpiryTime    time.Time           `json:"expiryTime"`    // When cache expires
 }
 
@@ -87,6 +86,5 @@ type DirectorySessionCache struct {
 	ExpandedFolders []string            `json:"expandedFolders"` // List of expanded folder paths
 	CurrentFile     string              `json:"currentFile"`     // Currently selected file
 	SheetSelections map[string][]string `json:"sheetSelections"` // File path -> selected sheets
-	FileHashes      map[string]string   `json:"fileHashes"`      // File path -> file content hash for validation
 	ExpiryTime      time.Time           `json:"expiryTime"`      // When cache expires
 }
