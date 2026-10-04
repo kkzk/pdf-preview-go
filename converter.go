@@ -117,13 +117,12 @@ func (c *OfficeConverter) convertExcelToPDF(srcPath, outputPath string, selected
 	}
 	defer excel.Release()
 
-	// Set properties
-	oleutil.PutProperty(excel, "DisplayAlerts", false)
-	oleutil.PutProperty(excel, "Visible", false)
-
-	// Get workbooks collection
-	workbooks := oleutil.MustGetProperty(excel, "Workbooks").ToIDispatch()
-	defer workbooks.Release()
+	// Get workbooks collection (cleanup quits Excel if we started it)
+	workbooks, cleanup, err := prepareOfficeApp(excel, "Workbooks")
+	if err != nil {
+		return fmt.Errorf("failed to prepare Excel application: %v", err)
+	}
+	defer cleanup()
 
 	// Open workbook
 	workbook, err := oleutil.CallMethod(workbooks, "Open", srcPath, false, true)
@@ -220,13 +219,12 @@ func (c *OfficeConverter) convertWordToPDF(srcPath, outputPath string) error {
 	}
 	defer word.Release()
 
-	// Set properties
-	oleutil.PutProperty(word, "DisplayAlerts", false)
-	oleutil.PutProperty(word, "Visible", false)
-
-	// Get documents collection
-	documents := oleutil.MustGetProperty(word, "Documents").ToIDispatch()
-	defer documents.Release()
+	// Get documents collection (cleanup quits Word if we started it)
+	documents, cleanup, err := prepareOfficeApp(word, "Documents", wdDoNotSaveChanges)
+	if err != nil {
+		return fmt.Errorf("failed to prepare Word application: %v", err)
+	}
+	defer cleanup()
 
 	// Open document
 	document, err := oleutil.CallMethod(documents, "Open", srcPath, false, true, false, "")
@@ -248,6 +246,69 @@ func (c *OfficeConverter) convertWordToPDF(srcPath, outputPath string) error {
 	}
 
 	return nil
+}
+
+// wdDoNotSaveChanges is the SaveChanges argument for Word's Application.Quit
+const wdDoNotSaveChanges = 0
+
+// prepareOfficeApp configures an Office application for background conversion
+// and returns its document collection (e.g. "Workbooks", "Documents") along
+// with a cleanup function. Defer the cleanup before opening the document so
+// that it runs after the document has been closed.
+//
+// CreateObject may return an instance the user is already working with
+// (notably Word). Such an instance is left visible and running, and only its
+// DisplayAlerts setting is restored. An instance started for this conversion
+// is quit, but only when no documents remain open in it.
+func prepareOfficeApp(app *ole.IDispatch, collectionName string, quitArgs ...interface{}) (*ole.IDispatch, func(), error) {
+	collectionVar, err := oleutil.GetProperty(app, collectionName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get %s: %v", collectionName, err)
+	}
+	collection := collectionVar.ToIDispatch()
+
+	// If the count is unknown (-1), treat it as a user instance to be safe
+	userInstance := isAppVisible(app) || collectionCount(collection) != 0
+
+	origAlerts, alertsErr := oleutil.GetProperty(app, "DisplayAlerts")
+	oleutil.PutProperty(app, "DisplayAlerts", false)
+	if !userInstance {
+		oleutil.PutProperty(app, "Visible", false)
+	}
+
+	cleanup := func() {
+		if userInstance {
+			if alertsErr == nil {
+				oleutil.PutProperty(app, "DisplayAlerts", origAlerts.Value())
+			}
+		} else if collectionCount(collection) == 0 {
+			if _, err := oleutil.CallMethod(app, "Quit", quitArgs...); err != nil {
+				fmt.Printf("Warning: failed to quit Office application: %v\n", err)
+			}
+		}
+		collection.Release()
+	}
+
+	return collection, cleanup, nil
+}
+
+// isAppVisible reports whether the Office application window is visible
+func isAppVisible(app *ole.IDispatch) bool {
+	v, err := oleutil.GetProperty(app, "Visible")
+	if err != nil {
+		return false
+	}
+	visible, _ := v.Value().(bool)
+	return visible
+}
+
+// collectionCount returns the Count of a COM collection, or -1 on error
+func collectionCount(collection *ole.IDispatch) int {
+	v, err := oleutil.GetProperty(collection, "Count")
+	if err != nil {
+		return -1
+	}
+	return int(v.Val)
 }
 
 // GetExcelSheetsInfo returns information about sheets in an Excel file
