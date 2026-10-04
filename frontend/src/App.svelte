@@ -5,11 +5,12 @@
     GetAutoUpdateEnabled,
     GetDefaultSavePath,
     GetDirectoryContents,
-    GetDirectoryTree,
     GetExcelSheets,
+    GetFilesInfo,
     GetInitialDirectory,
     HasUnsavedChanges,
     LoadDirectorySessionCache,
+    OpenFile,
     SaveDirectorySessionCache,
     SetAutoUpdateEnabled,
     SetWindowTitle,
@@ -53,8 +54,8 @@
   $: effectiveRightPanelSplit = isLogExpanded ? rightPanelSplit : 95 // ログ折りたたみ時はPDF表示を95%に
 
   // Left panel section heights (percentages)
-  let fileTreeHeight = 40
-  let selectedFilesHeight = 35
+  let fileTreeHeight = 35
+  let selectedFilesHeight = 20 // the sheet list gets the rest
   // sheetsHeight は削除 - CSS flexで自動調整
 
   // Resize states
@@ -130,11 +131,21 @@
       const fileName = data.file.split('\\').pop() || data.file.split('/').pop()
       addLog(`ファイルが変更されました: ${fileName} - PDFを自動更新中...`)
       // The viewer reloads when the regenerated PDF URL arrives
+      if (currentFile?.path === data.file) {
+        refreshCurrentSheets()
+      }
     })
+
+    window.addEventListener('focus', handleWindowFocus)
 
     // Listen for conversion events
     EventsOn('conversion:error', data => {
       addLog(`自動更新エラー: ${data.message}`)
+    })
+
+    // Retries and files left out of the PDF
+    EventsOn('conversion:warning', data => {
+      addLog(`警告: ${data.message}`)
     })
 
     // Listen for conversion progress events
@@ -158,6 +169,8 @@
   })
 
   onDestroy(() => {
+    window.removeEventListener('focus', handleWindowFocus)
+
     // Clear session save interval
     if (sessionSaveInterval) {
       clearInterval(sessionSaveInterval)
@@ -167,6 +180,7 @@
     EventsOff('directory-changed')
     EventsOff('file-changed')
     EventsOff('conversion:error')
+    EventsOff('conversion:warning')
     EventsOff('conversion:progress')
 
     // Save session before component destroys
@@ -177,19 +191,52 @@
     }
   })
 
+  // Only the top level is loaded here; subfolders are loaded when expanded
+  // (see loadFolderChildren), so large or cloud-backed folders open quickly
   async function loadFileTree() {
     try {
-      fileTree = await GetDirectoryTree(rootDirectory)
+      fileTree = await GetDirectoryContents(rootDirectory)
       addLog(`フォルダを読み込みました: ${rootDirectory}`)
     } catch (error) {
-      // Fallback to flat directory listing if tree fails
-      try {
-        fileTree = await GetDirectoryContents(rootDirectory)
-        addLog(`フォルダを読み込みました (フラット表示): ${rootDirectory}`)
-      } catch (fallbackError) {
-        addLog(`フォルダ読み込みエラー: ${error}`)
-      }
+      fileTree = []
+      addLog(`フォルダ読み込みエラー: ${error}`)
     }
+  }
+
+  // Loads the contents of a folder in the tree, if not loaded yet
+  async function loadFolderChildren(folderPath) {
+    const node = findFileInTree(fileTree, folderPath)
+    if (!node || !node.isDir || node.children || node.loading) {
+      return
+    }
+
+    fileTree = updateTreeNode(fileTree, folderPath, n => ({ ...n, loading: true }))
+    let children
+    try {
+      children = await GetDirectoryContents(folderPath)
+    } catch (error) {
+      children = []
+      addLog(`フォルダ読み込みエラー: ${folderPath}: ${error}`)
+    }
+    fileTree = updateTreeNode(fileTree, folderPath, n => ({ ...n, loading: false, children }))
+  }
+
+  // Returns a copy of the tree in which the node at targetPath is replaced by
+  // update(node); the nodes on the way are copied so that the change renders
+  function updateTreeNode(tree, targetPath, update) {
+    return tree.map(item => {
+      if (item.path === targetPath) {
+        return update(item)
+      }
+      if (item.children && isAncestorPath(item.path, targetPath)) {
+        return { ...item, children: updateTreeNode(item.children, targetPath, update) }
+      }
+      return item
+    })
+  }
+
+  function isAncestorPath(ancestor, path) {
+    return path.startsWith(ancestor + '\\') || path.startsWith(ancestor + '/')
   }
 
   function toggleFolder(folderPath) {
@@ -197,6 +244,7 @@
       expandedFolders.delete(folderPath)
     } else {
       expandedFolders.add(folderPath)
+      loadFolderChildren(folderPath)
     }
     expandedFolders = new Set(expandedFolders) // Trigger reactivity
 
@@ -216,22 +264,36 @@
     toggleFileSelection(event.detail)
   }
 
+  // Opens a file with its associated application (Excel, Word, ...)
+  async function handleOpenFile(event) {
+    const file = event.detail
+    try {
+      await OpenFile(file.path)
+      addLog(`アプリで開きました: ${file.name}`)
+    } catch (error) {
+      addLog(`ファイルを開けませんでした: ${file.name}: ${error}`)
+    }
+  }
+
   function toggleFileSelection(file) {
     const index = selectedFiles.findIndex(f => f.path === file.path)
-    if (index >= 0) {
-      selectedFiles.splice(index, 1)
-    } else {
+    const selecting = index < 0
+    if (selecting) {
       selectedFiles.push({ ...file })
+    } else {
+      selectedFiles.splice(index, 1)
     }
     selectedFiles = [...selectedFiles]
 
-    // If it's an Excel file, load its sheets
-    if (isExcelFile(file.name)) {
-      loadExcelSheets(file)
-    } else {
-      // Excel以外のファイルの場合、現在のファイルに設定してシート一覧をクリア
-      currentFile = file
-      excelSheets = []
+    // Show a newly selected file so that its sheets can be chosen
+    if (selecting) {
+      if (isExcelFile(file.name)) {
+        loadExcelSheets(file)
+      } else {
+        // Excel以外のファイルの場合、現在のファイルに設定してシート一覧をクリア
+        currentFile = file
+        excelSheets = []
+      }
     }
 
     addLog(`ファイル選択更新: ${file.name}`)
@@ -268,16 +330,17 @@
 
   // Drop selected sheet names that no longer exist in the workbook (e.g. the
   // sheet was renamed or deleted). If none remain, select all visible sheets.
+  // Returns whether the selection was changed.
   function reconcileSheetSelection(file, sheets) {
     const selected = sheetSelections[file.path]
     if (!selected || selected.length === 0) {
-      return
+      return false
     }
 
     const existingNames = new Set(sheets.map(sheet => sheet.name))
     const kept = selected.filter(name => existingNames.has(name))
     if (kept.length === selected.length) {
-      return
+      return false
     }
 
     const removed = selected.filter(name => !existingNames.has(name))
@@ -290,6 +353,75 @@
     addLog(`存在しないシートを選択から外しました: ${file.name} [${removed.join(', ')}]`)
 
     debouncedSaveSession()
+    return true
+  }
+
+  // Reloads the sheet list of the current file, e.g. after sheets were added,
+  // removed or renamed in Excel. Sheets added while all visible sheets were
+  // selected are selected too. If the selection changes, the PDF shown is
+  // regenerated, since auto-update converted it with the old selection.
+  async function refreshCurrentSheets() {
+    const file = currentFile
+    if (!file || !isExcelFile(file.name)) {
+      return
+    }
+
+    let sheets
+    try {
+      sheets = await GetExcelSheets(file.path)
+    } catch (error) {
+      return // e.g. the file is being saved; the next change will refresh it
+    }
+    if (currentFile?.path !== file.path || sameSheets(excelSheets, sheets)) {
+      return
+    }
+
+    const oldSheets = excelSheets
+    excelSheets = sheets
+    let selectionChanged = false
+
+    const added = sheets.filter(s => s.visible && !oldSheets.some(old => old.name === s.name))
+    const selected = sheetSelections[file.path]
+    if (added.length > 0 && selected && selected.length > 0) {
+      const addedNames = added.map(s => s.name)
+      const allWereSelected = oldSheets
+        .filter(s => s.visible)
+        .every(s => selected.includes(s.name))
+      if (allWereSelected) {
+        sheetSelections[file.path] = [...selected, ...addedNames]
+        sheetSelections = { ...sheetSelections }
+        selectionChanged = true
+        addLog(`追加されたシートを選択に加えました: ${file.name} [${addedNames.join(', ')}]`)
+      } else {
+        addLog(`シートが追加されました（未選択）: ${file.name} [${addedNames.join(', ')}]`)
+      }
+    }
+
+    if (reconcileSheetSelection(file, sheets)) {
+      selectionChanged = true
+    }
+
+    if (selectionChanged) {
+      debouncedSaveSession()
+      if (pdfUrl && selectedFiles.some(f => f.path === file.path)) {
+        convertToPDF()
+      }
+    }
+  }
+
+  function sameSheets(a, b) {
+    return (
+      a.length === b.length &&
+      a.every((sheet, i) => sheet.name === b[i].name && sheet.visible === b[i].visible)
+    )
+  }
+
+  // Sheets may have been changed in Excel while the app was in the
+  // background. .xls is skipped, as reading it starts Excel.
+  function handleWindowFocus() {
+    if (currentFile && !currentFile.name.toLowerCase().endsWith('.xls')) {
+      refreshCurrentSheets()
+    }
   }
 
   function toggleSheetSelection(sheetName) {
@@ -485,25 +617,23 @@
         return
       }
 
-      // Restore expanded folders
+      // Restore expanded folders, loading their contents parents first
       if (sessionCache.expandedFolders && sessionCache.expandedFolders.length > 0) {
         expandedFolders = new Set(sessionCache.expandedFolders)
+        const folders = [...sessionCache.expandedFolders].sort((a, b) => a.length - b.length)
+        for (const folder of folders) {
+          await loadFolderChildren(folder)
+        }
       }
 
-      // Restore selected files
+      // Restore selected files (they may be in folders that are not loaded)
       if (sessionCache.selectedFiles && sessionCache.selectedFiles.length > 0) {
-        selectedFiles = []
-        for (const filePath of sessionCache.selectedFiles) {
-          const file = findFileInTree(fileTree, filePath)
-          if (file) {
-            selectedFiles.push(file)
-          }
-        }
+        selectedFiles = await GetFilesInfo(sessionCache.selectedFiles)
       }
 
       // Restore current file
       if (sessionCache.currentFile) {
-        const file = findFileInTree(fileTree, sessionCache.currentFile)
+        const [file] = await GetFilesInfo([sessionCache.currentFile])
         if (file) {
           currentFile = file
           // Load excel sheets for current file if it's an Excel file
@@ -677,11 +807,45 @@
   }
 
   function handleMouseUp() {
+    const wasResizing =
+      isResizingLeftPanel || isResizingRightPanel || isResizingFileTree || isResizingSelectedFiles
     isResizingLeftPanel = false
     isResizingRightPanel = false
     isResizingFileTree = false
     isResizingSelectedFiles = false
+    if (wasResizing) {
+      saveLayout()
+    }
   }
+
+  // Panel sizes are remembered per user in localStorage
+  const layoutStorageKey = 'pdf-preview-go:layout'
+
+  function saveLayout() {
+    try {
+      localStorage.setItem(
+        layoutStorageKey,
+        JSON.stringify({ leftPanelWidth, rightPanelSplit, fileTreeHeight, selectedFilesHeight })
+      )
+    } catch (error) {
+      // Storage may be unavailable; the default layout is used next time
+    }
+  }
+
+  function loadLayout() {
+    try {
+      const layout = JSON.parse(localStorage.getItem(layoutStorageKey) || '{}')
+      const isNumber = value => typeof value === 'number' && Number.isFinite(value)
+      if (isNumber(layout.leftPanelWidth)) leftPanelWidth = layout.leftPanelWidth
+      if (isNumber(layout.rightPanelSplit)) rightPanelSplit = layout.rightPanelSplit
+      if (isNumber(layout.fileTreeHeight)) fileTreeHeight = layout.fileTreeHeight
+      if (isNumber(layout.selectedFilesHeight)) selectedFilesHeight = layout.selectedFilesHeight
+    } catch (error) {
+      // Use the default layout
+    }
+  }
+
+  loadLayout()
 </script>
 
 <main on:mousemove={handleMouseMove} on:mouseup={handleMouseUp}>
@@ -695,8 +859,11 @@
           {fileTree}
           {selectedFiles}
           {expandedFolders}
+          currentPath={currentFile?.path ?? ''}
           on:toggle-folder={handleToggleFolder}
           on:toggle-selection={handleToggleSelection}
+          on:select-file={handleSelectFile}
+          on:open-file={handleOpenFile}
         />
       </div>
 

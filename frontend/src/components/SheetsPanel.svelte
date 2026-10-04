@@ -161,12 +161,12 @@
   .sheet-checkbox {
     display: flex;
     align-items: center;
-    padding: 0.75rem 0.5rem; /* 縦のパディングを少し増やして使いやすく */
+    padding: 0.35rem 0.5rem; /* 多くのシートが見えるように詰める */
     cursor: pointer;
     gap: 0.5rem;
     border-bottom: 1px solid #f8f9fa;
     background: white;
-    min-height: 40px; /* 最小高さを設定してクリックしやすく */
+    min-height: 30px; /* 最小高さを設定してクリックしやすく */
   }
 
   .sheet-checkbox:hover:not(.disabled) {

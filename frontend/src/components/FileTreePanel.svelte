@@ -5,6 +5,7 @@
   export let fileTree = []
   export let selectedFiles = []
   export let expandedFolders = new Set()
+  export let currentPath = ''
 
   const dispatch = createEventDispatcher()
 
@@ -14,6 +15,14 @@
 
   function handleToggleSelection(event) {
     dispatch('toggle-selection', event.detail)
+  }
+
+  function handleSelectFile(event) {
+    dispatch('select-file', event.detail)
+  }
+
+  function handleOpenFile(event) {
+    dispatch('open-file', event.detail)
   }
 </script>
 
@@ -30,8 +39,11 @@
           node={rootNode}
           {selectedFiles}
           {expandedFolders}
+          {currentPath}
           on:toggle-folder={handleToggleFolder}
           on:toggle-selection={handleToggleSelection}
+          on:select-file={handleSelectFile}
+          on:open-file={handleOpenFile}
         />
       {/each}
     {/if}

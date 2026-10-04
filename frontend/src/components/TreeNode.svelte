@@ -4,16 +4,22 @@
   export let node
   export let selectedFiles = []
   export let expandedFolders = new Set()
+  export let currentPath = '' // path of the file whose sheets are shown
   export let depth = 0
 
   const dispatch = createEventDispatcher()
 
   $: isSelected = selectedFiles.some(f => f.path === node.path)
   $: isExpanded = expandedFolders.has(node.path)
-  $: hasChildren = node.children && node.children.length > 0
+  $: isCurrent = !node.isDir && node.path === currentPath
+  // Folder contents are loaded when the folder is first expanded:
+  // children is undefined until then, and [] for an empty folder
+  $: loaded = Array.isArray(node.children)
+  $: isEmpty = loaded && node.children.length === 0
+  $: canExpand = node.isDir && !isEmpty
 
   function toggleExpanded() {
-    if (node.isDir && hasChildren) {
+    if (canExpand) {
       dispatch('toggle-folder', node.path)
     }
   }
@@ -22,6 +28,33 @@
     if (!node.isDir) {
       dispatch('toggle-selection', node)
     }
+  }
+
+  // Clicking a file row shows the file (its sheets) without changing which
+  // files are selected for conversion; only the checkbox changes that
+  function showFile() {
+    if (!node.isDir) {
+      dispatch('select-file', node)
+    }
+  }
+
+  /** @param {KeyboardEvent} e */
+  function handleKeydown(e) {
+    if (e.target !== e.currentTarget) {
+      return // e.g. Space on the checkbox itself
+    }
+    if (node.isDir) {
+      if (e.key === 'Enter' && canExpand) toggleExpanded()
+    } else if (e.key === 'Enter') {
+      showFile()
+    } else if (e.key === ' ') {
+      e.preventDefault()
+      toggleSelection()
+    }
+  }
+
+  function openFile() {
+    dispatch('open-file', node)
   }
 
   function getFileIcon(node) {
@@ -45,45 +78,63 @@
     class="node-content"
     class:folder={node.isDir}
     class:file={!node.isDir}
-    class:clickable={node.isDir ? hasChildren : true}
-    on:click={node.isDir ? (hasChildren ? toggleExpanded : undefined) : toggleSelection}
-    on:keydown={e =>
-      e.key === 'Enter' && (node.isDir ? hasChildren && toggleExpanded() : toggleSelection())}
-    tabindex={node.isDir ? (hasChildren ? 0 : -1) : 0}
+    class:clickable={node.isDir ? canExpand : true}
+    class:current={isCurrent}
+    on:click={node.isDir ? (canExpand ? toggleExpanded : undefined) : showFile}
+    on:keydown={handleKeydown}
+    tabindex={node.isDir ? (canExpand ? 0 : -1) : 0}
     role="button"
   >
     {#if node.isDir}
       <button
         class="folder-toggle"
         on:click|stopPropagation={toggleExpanded}
-        disabled={!hasChildren}
+        disabled={!canExpand}
       >
         {getFileIcon(node)}
       </button>
-      <span class="node-name folder-name" class:disabled={!hasChildren}>
+      <span class="node-name folder-name" class:disabled={isEmpty}>
         {node.name}
       </span>
-      {#if hasChildren}
+      {#if isEmpty}
+        <span class="child-count">(空)</span>
+      {:else if loaded}
         <span class="child-count">({node.children.length})</span>
       {/if}
     {:else}
-      <input type="checkbox" checked={isSelected} on:change|stopPropagation={toggleSelection} />
+      <input
+        type="checkbox"
+        checked={isSelected}
+        on:click|stopPropagation
+        on:change={toggleSelection}
+        title="PDFに変換するファイルとして選択"
+      />
       <span class="file-icon">{getFileIcon(node)}</span>
       <span class="node-name">{node.name}</span>
       <span class="file-size">{formatFileSize(node.size)}</span>
+      <button class="open-file" on:click|stopPropagation={openFile} title="アプリで開く">
+        開く
+      </button>
     {/if}
   </div>
 
-  {#if node.isDir && isExpanded && hasChildren}
+  {#if node.isDir && isExpanded && node.loading}
+    <div class="children">
+      <div class="loading" style="padding-left: {(depth + 1) * 20}px">読み込み中…</div>
+    </div>
+  {:else if node.isDir && isExpanded && loaded && !isEmpty}
     <div class="children">
       {#each node.children as child}
         <svelte:self
           node={child}
           {selectedFiles}
           {expandedFolders}
+          {currentPath}
           depth={depth + 1}
           on:toggle-folder
           on:toggle-selection
+          on:select-file
+          on:open-file
         />
       {/each}
     </div>
@@ -116,6 +167,12 @@
 
   .node-content.clickable:hover {
     background: #e9ecef;
+  }
+
+  /* The file whose sheets are shown */
+  .node-content.current,
+  .node-content.current:hover {
+    background: #e7f1ff;
   }
 
   .node-content:focus {
@@ -187,6 +244,35 @@
   .children {
     border-left: 1px dotted #dee2e6;
     margin-left: 12px;
+  }
+
+  .loading {
+    font-size: 12px;
+    color: #6c757d;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+
+  .open-file {
+    visibility: hidden;
+    flex-shrink: 0;
+    padding: 0.1rem 0.4rem;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    background: white;
+    color: #495057;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  /* Show the open button on hover or keyboard focus */
+  .node-content:hover .open-file,
+  .node-content:focus-within .open-file {
+    visibility: visible;
+  }
+
+  .open-file:hover {
+    background: #e9ecef;
   }
 
   input[type='checkbox'] {

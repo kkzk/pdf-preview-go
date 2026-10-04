@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -35,20 +36,27 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 	modTimes := statModTimes(filePaths)
 
 	var convertedPDFs []string
-	var errors []string
+	var failures []string
 
 	// Convert each file to PDF
 	for i, filePath := range filePaths {
+		fileName := filepath.Base(filePath)
+
 		// Emit progress event
 		runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
 			Status:      "running",
-			CurrentFile: filepath.Base(filePath),
+			CurrentFile: fileName,
 			Progress:    int((float64(i) / float64(len(filePaths))) * 100),
 		})
 
-		outputPath, err := a.converter.ConvertToPDF(filePath, sheetSelections[filePath])
+		outputPath, err := retryConversion(func() (string, error) {
+			return a.converter.ConvertToPDF(filePath, sheetSelections[filePath])
+		}, conversionRetryDelays, a.stopCh, func(attempt int, err error) {
+			a.emitWarning(fmt.Sprintf("%s の変換に失敗したため再試行します (%d/%d): %v",
+				fileName, attempt, len(conversionRetryDelays), err))
+		})
 		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", filepath.Base(filePath), err))
+			failures = append(failures, fmt.Sprintf("%s: %v", fileName, err))
 			continue
 		}
 
@@ -56,7 +64,11 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 	}
 
 	if len(convertedPDFs) == 0 {
-		return "", fmt.Errorf("no files were successfully converted: %v", errors)
+		return "", fmt.Errorf("no files were successfully converted: %s", strings.Join(failures, "; "))
+	}
+	if len(failures) > 0 {
+		// The PDF is created without these files; let the user know
+		a.emitWarning("一部のファイルを変換できなかったため、PDFに含まれていません: " + strings.Join(failures, "; "))
 	}
 
 	// If only one file, use it directly; otherwise merge them using pdfcpu
@@ -111,4 +123,43 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 	}
 
 	return pdfURL, nil
+}
+
+// conversionRetryDelays are the waits before retrying a failed conversion.
+// A file that has just been saved may be briefly locked or missing, e.g.
+// while Office saves it or a sync client (Box Drive, OneDrive) uploads it.
+var conversionRetryDelays = []time.Duration{2 * time.Second, 4 * time.Second}
+
+// retryConversion calls convert, retrying after each of delays while it
+// fails with a retryable error. onRetry is called before each retry with the
+// attempt number (1-based) and the error. Waiting stops when stop is closed.
+func retryConversion(convert func() (string, error), delays []time.Duration, stop <-chan struct{}, onRetry func(attempt int, err error)) (string, error) {
+	outputPath, err := convert()
+	for i, delay := range delays {
+		if err == nil || !isRetryableConversionError(err) {
+			break
+		}
+		onRetry(i+1, err)
+		select {
+		case <-stop:
+			return outputPath, err
+		case <-time.After(delay):
+		}
+		outputPath, err = convert()
+	}
+	return outputPath, err
+}
+
+// isRetryableConversionError reports whether a conversion error may go away
+// by retrying (e.g. the file is locked), as opposed to a permanent one
+func isRetryableConversionError(err error) bool {
+	return !errors.Is(err, ErrUnsupportedFileType) && !errors.Is(err, ErrSheetsNotFound)
+}
+
+// emitWarning logs a warning and shows it in the frontend log
+func (a *App) emitWarning(message string) {
+	log.Printf("Warning: %s", message)
+	runtime.EventsEmit(a.ctx, "conversion:warning", map[string]interface{}{
+		"message": message,
+	})
 }
