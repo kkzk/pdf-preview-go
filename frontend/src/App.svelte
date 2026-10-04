@@ -47,16 +47,10 @@
   let rightPanelSplit = 70 // percentage for PDF viewer when log is expanded
   let expandedFolders = new Set() // Track which folders are expanded
   let isLogExpanded = false // Track log section state
-  let pdfViewerKey = 0 // Force PDF viewer reload
 
   // Session save interval reference
   let sessionSaveInterval
   $: effectiveRightPanelSplit = isLogExpanded ? rightPanelSplit : 95 // ログ折りたたみ時はPDF表示を95%に
-
-  // Force PDF viewer reload when URL changes
-  $: if (pdfUrl) {
-    pdfViewerKey++
-  }
 
   // Left panel section heights (percentages)
   let fileTreeHeight = 40
@@ -747,7 +741,7 @@
     <div class="right-panel">
       <!-- PDF Viewer -->
       <div class="pdf-viewer-container">
-        <PdfViewer {pdfUrl} {pdfViewerKey} {hasUnsavedChanges} on:save-pdf={saveCurrentPdf} />
+        <PdfViewer {pdfUrl} {hasUnsavedChanges} on:save-pdf={saveCurrentPdf} />
       </div>
 
       <!-- Resize Handle for Right Panel -->
