@@ -26,6 +26,12 @@ func (a *App) GetInitialDirectory() string {
 	return a.initialDir
 }
 
+// GetInitialFile returns the file given on the command line (e.g. from the
+// Explorer context menu) to select at startup, or "" if none
+func (a *App) GetInitialFile() string {
+	return a.initialFile
+}
+
 // OpenFileDialog opens a file dialog to select PDF files
 func (a *App) OpenFileDialog() (string, error) {
 	file, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
