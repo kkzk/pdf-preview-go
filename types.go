@@ -10,10 +10,11 @@ import (
 
 // App struct
 type App struct {
-	ctx        context.Context
-	converter  *OfficeConverter
-	initialDir string // Initial directory to open
-	watcher    *fsnotify.Watcher
+	ctx         context.Context
+	converter   *OfficeConverter
+	initialDir  string // Initial directory to open
+	initialFile string // File to select at startup (from the command line), if any
+	watcher     *fsnotify.Watcher
 
 	// convertMu serializes conversions so that only one runs at a time
 	convertMu sync.Mutex

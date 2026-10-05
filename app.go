@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// NewApp creates a new App application struct
-func NewApp(initialDir string) *App {
+// NewApp creates the app. initialFile, if not empty, is selected in initialDir.
+func NewApp(initialDir, initialFile string) *App {
 	// Create cache directory
 	cacheDir := pdfCacheDir()
 	os.MkdirAll(cacheDir, 0755)
@@ -16,6 +16,7 @@ func NewApp(initialDir string) *App {
 	app := &App{
 		converter:           NewOfficeConverter(cacheDir),
 		initialDir:          initialDir,
+		initialFile:         initialFile,
 		watchedDir:          "",
 		lastConvertedFiles:  []string{},
 		lastConvertedSheets: make(map[string][]string),

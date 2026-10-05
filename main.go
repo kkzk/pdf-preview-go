@@ -7,7 +7,6 @@ import (
 	"flag"
 	"log"
 	"os"
-	"path/filepath"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
@@ -24,40 +23,18 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	log.Println("Starting PDF Preview Go application...")
 
-	// Parse command line arguments
+	// Parse command line arguments: a folder, or a file to select in its folder
+	// (e.g. from the Explorer context menu)
 	flag.Parse()
-
-	// Get the directory from positional arguments
-	var initialDir string
-	args := flag.Args()
-
-	if len(args) > 0 {
-		// Use the first positional argument as the directory
-		targetDir := args[0]
-
-		// Convert to absolute path
-		absDir, err := filepath.Abs(targetDir)
-		if err != nil {
-			log.Fatalf("Error resolving directory path: %v", err)
-		}
-
-		// Check if directory exists
-		if _, err := os.Stat(absDir); os.IsNotExist(err) {
-			log.Fatalf("Directory does not exist: %s", absDir)
-		}
-
-		initialDir = absDir
-	} else {
-		// Use current working directory if no argument provided
-		cwd, err := os.Getwd()
-		if err != nil {
-			log.Fatalf("Error getting current directory: %v", err)
-		}
-		initialDir = cwd
+	initialDir, initialFile, err := resolveStartupPath(flag.Arg(0))
+	if err != nil {
+		log.Printf("Startup error: %v", err)
+		showStartupError(err)
+		os.Exit(1)
 	}
 
 	// Create an instance of the app structure
-	app := NewApp(initialDir)
+	app := NewApp(initialDir, initialFile)
 
 	// Create application menu
 	appMenu := menu.NewMenu()
@@ -77,8 +54,25 @@ func main() {
 		runtime.Quit(app.ctx)
 	})
 
+	// Explorer context menu ("PDF Previewで開く"), registered per user only
+	// when turned on here
+	settingsMenu := appMenu.AddSubmenu("設定")
+	settingsMenu.AddCheckbox("エクスプローラーの右クリックメニューに追加", app.IsContextMenuEnabled(), nil, func(data *menu.CallbackData) {
+		// The checkbox has already been toggled when this is called
+		item := data.MenuItem
+		if err := app.SetContextMenuEnabled(item.Checked); err != nil {
+			item.SetChecked(!item.Checked)
+			runtime.MenuUpdateApplicationMenu(app.ctx)
+			runtime.MessageDialog(app.ctx, runtime.MessageDialogOptions{
+				Type:    runtime.ErrorDialog,
+				Title:   "右クリックメニュー",
+				Message: "右クリックメニューを変更できませんでした: " + err.Error(),
+			})
+		}
+	})
+
 	// Create application with options
-	err := wails.Run(&options.App{
+	err = wails.Run(&options.App{
 		Title:  "pdf-preview-go",
 		Width:  1024,
 		Height: 768,

@@ -8,6 +8,7 @@
     GetExcelSheets,
     GetFilesInfo,
     GetInitialDirectory,
+    GetInitialFile,
     HasUnsavedChanges,
     LoadDirectorySessionCache,
     OpenFile,
@@ -84,6 +85,10 @@
         }
 
         addLog(`作業ディレクトリを設定しました: ${initialDir}`)
+
+        // Started with a file (e.g. from the Explorer context menu): select only
+        // that file. Expanded folders and sheet selections come from the session.
+        await selectInitialFile()
       }
 
       // Get auto-update setting
@@ -190,6 +195,29 @@
       })
     }
   })
+
+  async function selectInitialFile() {
+    const filePath = await GetInitialFile()
+    if (!filePath) {
+      return
+    }
+
+    const [file] = await GetFilesInfo([filePath])
+    if (!file) {
+      addLog(`指定されたファイルが見つかりません: ${filePath}`)
+      return
+    }
+
+    selectedFiles = [file]
+    if (isExcelFile(file.name)) {
+      await loadExcelSheets(file)
+    } else {
+      currentFile = file
+      excelSheets = []
+    }
+    addLog(`ファイルを選択しました: ${file.name}`)
+    debouncedSaveSession()
+  }
 
   // Only the top level is loaded here; subfolders are loaded when expanded
   // (see loadFolderChildren), so large or cloud-backed folders open quickly
