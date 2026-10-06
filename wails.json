@@ -13,7 +13,7 @@
   "Info": {
     "companyName": "kkzk",
     "productName": "pdf-preview-go",
-    "productVersion": "0.2.0",
+    "productVersion": "0.2.1",
     "copyright": "Copyright 2025 shohachi.kakizaki@gmail.com",
     "comments": "Built using Wails (https://wails.io)"
   }
