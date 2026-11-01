@@ -1,4 +1,4 @@
-package main
+package pdfserver
 
 import (
 	"net/http"
@@ -8,17 +8,17 @@ import (
 	"testing"
 )
 
-func TestPdfHandler(t *testing.T) {
+func TestHandler(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "a.pdf"), []byte("%PDF-1.4 test"), 0644)
 	os.WriteFile(filepath.Join(dir, "session_x.json"), []byte("{}"), 0644)
-	h := (&App{converter: NewOfficeConverter(dir)}).pdfHandler()
+	h := NewHandler(dir)
 
 	tests := []struct {
 		path string
 		want int
 	}{
-		{buildPdfURL("a.pdf", 1), http.StatusOK},
+		{URL("a.pdf", 1), http.StatusOK},
 		{"/pdf/missing.pdf", http.StatusNotFound},
 		{"/pdf/", http.StatusNotFound},               // no directory listing
 		{"/pdf/session_x.json", http.StatusNotFound}, // PDFs only

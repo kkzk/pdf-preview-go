@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"pdf-preview-go/internal/files"
 
 	"golang.org/x/sys/windows"
 )
@@ -38,8 +39,7 @@ func resolveStartupPath(arg string) (dir, file string, err error) {
 	}
 
 	dir = filepath.Dir(path)
-	name := filepath.Base(path)
-	if isOfficeFile(strings.ToLower(filepath.Ext(name))) && !strings.HasPrefix(name, "~$") {
+	if files.IsSupported(path) {
 		file = path
 	}
 	return dir, file, nil

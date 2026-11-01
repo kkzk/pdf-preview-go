@@ -1,4 +1,6 @@
-package main
+// Package contextmenu registers the Explorer context menu entry
+// ("PDF Previewで開く") for the current user.
+package contextmenu
 
 import (
 	"errors"
@@ -145,15 +147,15 @@ func notifyAssociationsChanged() {
 	}
 }
 
-// IsContextMenuEnabled reports whether the Explorer context menu is registered
-// for the current user
-func (a *App) IsContextMenuEnabled() bool {
+// Enabled reports whether the Explorer context menu is registered for the
+// current user
+func Enabled() bool {
 	return isContextMenuRegistered(userClassesKey)
 }
 
-// SetContextMenuEnabled turns the Explorer context menu on or off for the
-// current user. When turned on, it starts the running executable.
-func (a *App) SetContextMenuEnabled(enabled bool) error {
+// SetEnabled turns the Explorer context menu on or off for the current user.
+// When turned on, it starts the running executable.
+func SetEnabled(enabled bool) error {
 	if !enabled {
 		return unregisterContextMenu(userClassesKey)
 	}

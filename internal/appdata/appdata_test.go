@@ -1,4 +1,4 @@
-package main
+package appdata
 
 import (
 	"os"
@@ -19,8 +19,7 @@ func TestDirectorySessionSurvivesFileChanges(t *testing.T) {
 	}
 	os.Mkdir(sub, 0755)
 
-	a := &App{}
-	err := a.SaveDirectorySessionCache(dir,
+	err := SaveDirectorySessionCache(dir,
 		[]string{edited, deleted},
 		[]string{sub, filepath.Join(dir, "gone")},
 		edited,
@@ -35,7 +34,7 @@ func TestDirectorySessionSurvivesFileChanges(t *testing.T) {
 	os.Chtimes(edited, later, later)
 	os.Remove(deleted)
 
-	session, err := a.LoadDirectorySessionCache(dir)
+	session, err := LoadDirectorySessionCache(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +57,7 @@ func TestDirectorySessionSurvivesFileChanges(t *testing.T) {
 
 func TestDirectorySessionNotFound(t *testing.T) {
 	isolateDirs(t)
-	session, err := (&App{}).LoadDirectorySessionCache(t.TempDir())
+	session, err := LoadDirectorySessionCache(t.TempDir())
 	if err != nil || session != nil {
 		t.Errorf("got (%v, %v), want (nil, nil)", session, err)
 	}
@@ -66,20 +65,19 @@ func TestDirectorySessionNotFound(t *testing.T) {
 
 func TestDirectoryHistory(t *testing.T) {
 	isolateDirs(t)
-	a := &App{}
 	first, second := t.TempDir(), t.TempDir()
 	gone := filepath.Join(t.TempDir(), "gone")
 	os.Mkdir(gone, 0755)
 
 	for _, dir := range []string{first, gone, second, first} {
-		if err := a.AddDirectoryToHistory(dir); err != nil {
+		if err := AddDirectoryToHistory(dir); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(10 * time.Millisecond) // distinct LastUsed
 	}
 	os.Remove(gone)
 
-	history, err := a.GetDirectoryHistory()
+	history, err := LoadDirectoryHistory()
 	if err != nil {
 		t.Fatal(err)
 	}

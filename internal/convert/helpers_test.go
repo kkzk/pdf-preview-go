@@ -1,4 +1,4 @@
-package main
+package convert
 
 import (
 	"archive/zip"
@@ -12,16 +12,6 @@ import (
 
 	"github.com/go-ole/go-ole"
 )
-
-// isolateDirs points the temp and app data directories to fresh temporary
-// directories, so tests do not touch the user's cache, history or sessions
-func isolateDirs(t *testing.T) {
-	t.Helper()
-	tmp := t.TempDir()
-	t.Setenv("TMP", tmp)
-	t.Setenv("TEMP", tmp)
-	t.Setenv("APPDATA", t.TempDir())
-}
 
 // requireOffice skips the test in short mode or if the given Office
 // application (e.g. "Excel.Application") is not installed
@@ -39,10 +29,10 @@ func requireOffice(t *testing.T, progID string) {
 	}
 }
 
-// testdataPath returns the absolute path of a file in test/testdata
+// testdataPath returns the absolute path of a file in testdata
 func testdataPath(t *testing.T, name string) string {
 	t.Helper()
-	path, err := filepath.Abs(filepath.Join("test", "testdata", name))
+	path, err := filepath.Abs(filepath.Join("testdata", name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +73,7 @@ func writeTestPDF(t *testing.T, path string, pages int) {
 	}
 }
 
-// writeWorkbookWithSheetStates copies test/testdata/testdata1.xlsx (sheets
+// writeWorkbookWithSheetStates copies testdata/testdata1.xlsx (sheets
 // "Sheet1" and "Sheet2") to dst, setting the state attribute of the given
 // sheets (e.g. "hidden", "veryHidden") in xl/workbook.xml
 func writeWorkbookWithSheetStates(t *testing.T, dst string, states map[string]string) {

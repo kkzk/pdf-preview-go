@@ -8,6 +8,8 @@ import (
 	"log"
 	"os"
 
+	"pdf-preview-go/internal/pdfserver"
+
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
@@ -78,7 +80,7 @@ func main() {
 		Height: 768,
 		AssetServer: &assetserver.Options{
 			Assets:  assets,
-			Handler: app.pdfHandler(),
+			Handler: pdfserver.NewHandler(app.converter.CacheDir()),
 		},
 		Menu:             appMenu,
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},

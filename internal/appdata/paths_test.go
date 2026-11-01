@@ -1,4 +1,4 @@
-package main
+package appdata
 
 import (
 	"os"
@@ -11,7 +11,7 @@ func TestDataDirIsSeparateFromCache(t *testing.T) {
 	if filepath.Dir(dataDir()) != os.Getenv("APPDATA") {
 		t.Errorf("dataDir() = %s, want under APPDATA %s", dataDir(), os.Getenv("APPDATA"))
 	}
-	if dataDir() == pdfCacheDir() {
+	if dataDir() == PDFCacheDir() {
 		t.Error("data and PDF cache share a directory")
 	}
 }
@@ -27,7 +27,7 @@ func TestDirectoryHashIgnoresCase(t *testing.T) {
 
 func TestMigrateLegacyData(t *testing.T) {
 	isolateDirs(t)
-	oldDir := pdfCacheDir()
+	oldDir := PDFCacheDir()
 	newDir := dataDir()
 	write := func(dir, name, content string) {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -42,7 +42,7 @@ func TestMigrateLegacyData(t *testing.T) {
 	}
 	write(newDir, "session_b.json", "new") // already migrated
 
-	migrateLegacyData()
+	MigrateLegacyData()
 
 	read := func(dir, name string) string {
 		data, err := os.ReadFile(filepath.Join(dir, name))

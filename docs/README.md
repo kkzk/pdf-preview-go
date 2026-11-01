@@ -51,7 +51,8 @@ pdf-preview-go/
 ├── .github/
 │   └── copilot-instructions.md     # 🤖 Copilot動作指示
 ├── frontend/                       # 🖼️ フロントエンド
-├── main.go, app.go                 # ⚙️ バックエンド
+├── main.go, app.go, ...            # ⚙️ バックエンド（エントリーポイントと公開メソッド）
+├── internal/                       # ⚙️ バックエンドの各機能（変換・監視・保存など）
 └── README.md                       # 📖 プロジェクト概要
 ```
 

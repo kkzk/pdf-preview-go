@@ -10,7 +10,7 @@
             "preLaunchTask": "build",
             "cwd": "${workspaceFolder}",
             "args": [
-                "./test"
+                "./internal/convert/testdata"
             ],
             "env": {}
         },
@@ -21,7 +21,7 @@
             "mode": "debug",
             "program": "${workspaceFolder}",
             "args": [
-                "./test"
+                "./internal/convert/testdata"
             ],
             "env": {},
             "console": "integratedTerminal",
@@ -45,7 +45,7 @@
         {
             "id": "customDirectory",
             "description": "Enter directory path to open",
-            "default": "./test",
+            "default": "./internal/convert/testdata",
             "type": "promptString"
         }
     ]

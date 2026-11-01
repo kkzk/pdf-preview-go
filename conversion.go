@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -9,16 +8,28 @@ import (
 	"strings"
 	"time"
 
+	"pdf-preview-go/internal/convert"
+	"pdf-preview-go/internal/pdfserver"
+	"pdf-preview-go/internal/watch"
+
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // mergedFilePrefix is the file name prefix of merged PDFs in the cache directory
 const mergedFilePrefix = "merged_"
 
-// GetExcelSheets returns sheet information for an Excel file
-func (a *App) GetExcelSheets(filePath string) ([]ExcelSheetInfo, error) {
-	return GetExcelSheetsInfo(filePath)
+// ConversionStatus represents the status of a conversion operation
+type ConversionStatus struct {
+	Status       string `json:"status"`       // "running", "completed", "error"
+	CurrentFile  string `json:"currentFile"`  // Currently processing file
+	Progress     int    `json:"progress"`     // Progress percentage
+	OutputPath   string `json:"outputPath"`   // Final output PDF path
+	ErrorMessage string `json:"errorMessage"` // Error message if status is "error"
 }
+
+// conversionRetryDelays are the waits before retrying a failed conversion
+// (see convert.Retry)
+var conversionRetryDelays = []time.Duration{2 * time.Second, 4 * time.Second}
 
 // ConvertToPDF converts selected files to PDF and merges them.
 // Conversions are serialized: a call waits until any running conversion
@@ -33,7 +44,7 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 
 	// Record modification times before converting, so that a save made
 	// during the conversion is detected as a change afterwards
-	modTimes := statModTimes(filePaths)
+	modTimes := watch.StatModTimes(filePaths)
 
 	var convertedPDFs []string
 	var failures []string
@@ -49,7 +60,7 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 			Progress:    int((float64(i) / float64(len(filePaths))) * 100),
 		})
 
-		outputPath, err := retryConversion(func() (string, error) {
+		outputPath, err := convert.Retry(func() (string, error) {
 			return a.converter.ConvertToPDF(filePath, sheetSelections[filePath])
 		}, conversionRetryDelays, a.stopCh, func(attempt int, err error) {
 			a.emitWarning(fmt.Sprintf("%s の変換に失敗したため再試行します (%d/%d): %v",
@@ -85,13 +96,13 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 		mergedFileName := fmt.Sprintf("%s%s.pdf", mergedFilePrefix, time.Now().Format("20060102_150405.000"))
 		pdfPath = filepath.Join(filepath.Dir(convertedPDFs[0]), mergedFileName)
 
-		if err := MergePDFs(convertedPDFs, pdfPath); err != nil {
+		if err := convert.MergePDFs(convertedPDFs, pdfPath); err != nil {
 			return "", fmt.Errorf("failed to merge PDFs: %v", err)
 		}
 	}
 
 	// Convert file path to URL with cache buster
-	pdfURL := buildPdfURL(filepath.Base(pdfPath), time.Now().UnixNano())
+	pdfURL := pdfserver.URL(filepath.Base(pdfPath), time.Now().UnixNano())
 
 	runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
 		Status:     "completed",
@@ -107,9 +118,9 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 	// Record current PDF path and mark as modified
 	a.currentPdfPath = pdfPath
 	a.hasUnsavedChanges = true
-	// Record file modification times for change detection
-	a.fileModTimes = modTimes
 	a.mu.Unlock()
+	// Record file modification times for change detection
+	a.watcher.Track(filePaths, modTimes)
 
 	// Remove the previous merged PDF, which is no longer used. This may fail
 	// while it is being read (e.g. saved); it is then removed by CleanupCache.
@@ -118,42 +129,11 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 	}
 
 	// Start watching the directory of the first file
-	if err := a.StartWatchingDirectory(filepath.Dir(filePaths[0])); err != nil {
+	if err := a.watcher.WatchDir(filepath.Dir(filePaths[0])); err != nil {
 		log.Printf("Warning: failed to watch directory: %v", err)
 	}
 
 	return pdfURL, nil
-}
-
-// conversionRetryDelays are the waits before retrying a failed conversion.
-// A file that has just been saved may be briefly locked or missing, e.g.
-// while Office saves it or a sync client (Box Drive, OneDrive) uploads it.
-var conversionRetryDelays = []time.Duration{2 * time.Second, 4 * time.Second}
-
-// retryConversion calls convert, retrying after each of delays while it
-// fails with a retryable error. onRetry is called before each retry with the
-// attempt number (1-based) and the error. Waiting stops when stop is closed.
-func retryConversion(convert func() (string, error), delays []time.Duration, stop <-chan struct{}, onRetry func(attempt int, err error)) (string, error) {
-	outputPath, err := convert()
-	for i, delay := range delays {
-		if err == nil || !isRetryableConversionError(err) {
-			break
-		}
-		onRetry(i+1, err)
-		select {
-		case <-stop:
-			return outputPath, err
-		case <-time.After(delay):
-		}
-		outputPath, err = convert()
-	}
-	return outputPath, err
-}
-
-// isRetryableConversionError reports whether a conversion error may go away
-// by retrying (e.g. the file is locked), as opposed to a permanent one
-func isRetryableConversionError(err error) bool {
-	return !errors.Is(err, ErrUnsupportedFileType) && !errors.Is(err, ErrSheetsNotFound)
 }
 
 // emitWarning logs a warning and shows it in the frontend log
@@ -162,4 +142,34 @@ func (a *App) emitWarning(message string) {
 	runtime.EventsEmit(a.ctx, "conversion:warning", map[string]interface{}{
 		"message": message,
 	})
+}
+
+// onFileChanged is called by the watcher when a converted file has been
+// modified, and regenerates the PDF with the same files and sheet selections
+func (a *App) onFileChanged(changedFile string) {
+	runtime.EventsEmit(a.ctx, "file-changed", map[string]interface{}{
+		"file": changedFile,
+	})
+
+	a.mu.Lock()
+	convertedFiles := a.lastConvertedFiles
+	convertedSheets := a.lastConvertedSheets
+	a.mu.Unlock()
+
+	// Skip files that no longer exist
+	validFiles := []string{}
+	for _, filePath := range convertedFiles {
+		if _, err := os.Stat(filePath); err == nil {
+			validFiles = append(validFiles, filePath)
+		}
+	}
+	if len(validFiles) == 0 {
+		return
+	}
+
+	if _, err := a.ConvertToPDF(validFiles, convertedSheets); err != nil {
+		runtime.EventsEmit(a.ctx, "conversion:error", map[string]interface{}{
+			"message": "Auto-update failed: " + err.Error(),
+		})
+	}
 }

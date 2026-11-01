@@ -1,4 +1,6 @@
-package main
+// Package convert converts Office documents to PDF with the Office
+// applications (via COM), merges PDFs and reads Excel sheet lists.
+package convert
 
 import (
 	"crypto/md5"
@@ -37,10 +39,23 @@ func NewOfficeConverter(cacheDir string) *OfficeConverter {
 	}
 }
 
-// ConvertResult contains the result of a conversion operation
-type ConvertResult struct {
-	OutputPath string
-	Error      error
+// CacheDir returns the directory where converted PDFs are cached
+func (c *OfficeConverter) CacheDir() string {
+	return c.cacheDir
+}
+
+// supportedExts are the extensions of the files that can be converted
+var supportedExts = []string{".xlsx", ".xls", ".xlsm", ".docx", ".doc", ".pdf"}
+
+// IsSupportedExt reports whether files with the (lower-case) extension can be
+// converted
+func IsSupportedExt(ext string) bool {
+	for _, supported := range supportedExts {
+		if ext == supported {
+			return true
+		}
+	}
+	return false
 }
 
 // ConvertToPDF converts an Office file to PDF using Office applications.
@@ -438,7 +453,6 @@ func copyFile(src, dst string) error {
 }
 
 // CleanupCache removes cached PDFs that have not been used for maxAge
-
 func (c *OfficeConverter) CleanupCache(maxAge time.Duration) error {
 	entries, err := os.ReadDir(c.cacheDir)
 	if err != nil {

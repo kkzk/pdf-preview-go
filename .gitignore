@@ -93,3 +93,6 @@ test.pdf
 # Frontend specific VSCode settings
 frontend/.vscode/
 build/windows/installer/wails_tools.nsh
+
+# graphify output
+graphify-out/

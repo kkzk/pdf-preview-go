@@ -1,4 +1,4 @@
-package main
+package files
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestGetDirectoryContents(t *testing.T) {
+func TestListDirectory(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"a.xlsx", "b.docx", "c.pdf", "notes.txt", "~$a.xlsx"} {
 		os.WriteFile(filepath.Join(dir, name), []byte("x"), 0644)
@@ -16,8 +16,7 @@ func TestGetDirectoryContents(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, "sub", "deep"), 0755)
 	os.WriteFile(filepath.Join(dir, "sub", "d.xlsx"), []byte("x"), 0644)
 
-	a := &App{}
-	files, err := a.GetDirectoryContents(dir)
+	files, err := ListDirectory(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +36,7 @@ func TestGetDirectoryContents(t *testing.T) {
 
 	// An empty folder returns an empty list (not nil), so the frontend can
 	// tell it apart from a folder that has not been loaded
-	empty, err := a.GetDirectoryContents(filepath.Join(dir, "sub", "deep"))
+	empty, err := ListDirectory(filepath.Join(dir, "sub", "deep"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,12 +45,12 @@ func TestGetDirectoryContents(t *testing.T) {
 	}
 }
 
-func TestGetFilesInfo(t *testing.T) {
+func TestStat(t *testing.T) {
 	dir := t.TempDir()
 	existing := filepath.Join(dir, "a.xlsx")
 	os.WriteFile(existing, []byte("12345"), 0644)
 
-	files := (&App{}).GetFilesInfo([]string{existing, filepath.Join(dir, "missing.xlsx"), dir})
+	files := Stat([]string{existing, filepath.Join(dir, "missing.xlsx"), dir})
 	if len(files) != 1 {
 		t.Fatalf("files = %+v, want only %s", files, existing)
 	}
@@ -59,21 +58,20 @@ func TestGetFilesInfo(t *testing.T) {
 		t.Errorf("file = %+v", f)
 	}
 
-	if files := (&App{}).GetFilesInfo(nil); files == nil || len(files) != 0 {
+	if files := Stat(nil); files == nil || len(files) != 0 {
 		t.Errorf("no paths = %#v, want []", files)
 	}
 }
 
-func TestOpenFileRejectsUnsupported(t *testing.T) {
+func TestOpenRejectsUnsupported(t *testing.T) {
 	// The success path is not tested, as it would launch Excel/Word
 	dir := t.TempDir()
 	txt := filepath.Join(dir, "notes.txt")
 	os.WriteFile(txt, []byte("x"), 0644)
 
-	a := &App{}
 	for _, path := range []string{filepath.Join(dir, "missing.xlsx"), dir, txt} {
-		if err := a.OpenFile(path); err == nil {
-			t.Errorf("OpenFile(%s) succeeded, want an error", path)
+		if err := Open(path); err == nil {
+			t.Errorf("Open(%s) succeeded, want an error", path)
 		}
 	}
 }
