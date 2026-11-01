@@ -1,4 +1,4 @@
-package main
+package appdata
 
 import (
 	"encoding/json"
@@ -11,8 +11,29 @@ import (
 	"time"
 )
 
-// GetDirectoryHistory returns the list of recently used directories
-func (a *App) GetDirectoryHistory() ([]DirectoryHistory, error) {
+// DirectoryHistory represents history of directory usage
+type DirectoryHistory struct {
+	Path        string    `json:"path"`        // Directory path
+	DisplayName string    `json:"displayName"` // Display name (usually folder name)
+	LastUsed    time.Time `json:"lastUsed"`    // When directory was last accessed
+	UsageCount  int       `json:"usageCount"`  // How many times this directory was used
+}
+
+// DirectorySessionCache represents cached state for a specific directory
+type DirectorySessionCache struct {
+	DirectoryPath   string              `json:"directoryPath"`   // Directory path
+	DirectoryHash   string              `json:"directoryHash"`   // MD5 hash of directory path
+	LastUpdated     time.Time           `json:"lastUpdated"`     // When cache was last updated
+	SelectedFiles   []string            `json:"selectedFiles"`   // List of selected file paths
+	ExpandedFolders []string            `json:"expandedFolders"` // List of expanded folder paths
+	CurrentFile     string              `json:"currentFile"`     // Currently selected file
+	SheetSelections map[string][]string `json:"sheetSelections"` // File path -> selected sheets
+	ExpiryTime      time.Time           `json:"expiryTime"`      // When cache expires
+}
+
+// LoadDirectoryHistory returns the recently used directories that still exist,
+// most recent first
+func LoadDirectoryHistory() ([]DirectoryHistory, error) {
 	cacheFilePath := historyFilePath()
 
 	// Check if cache file exists
@@ -54,7 +75,7 @@ func (a *App) GetDirectoryHistory() ([]DirectoryHistory, error) {
 }
 
 // AddDirectoryToHistory adds a directory to the usage history
-func (a *App) AddDirectoryToHistory(dirPath string) error {
+func AddDirectoryToHistory(dirPath string) error {
 	if dirPath == "" {
 		return fmt.Errorf("directory path cannot be empty")
 	}
@@ -66,7 +87,7 @@ func (a *App) AddDirectoryToHistory(dirPath string) error {
 	}
 
 	// Get current history
-	history, err := a.GetDirectoryHistory()
+	history, err := LoadDirectoryHistory()
 	if err != nil {
 		history = []DirectoryHistory{}
 	}
@@ -124,7 +145,7 @@ func (a *App) AddDirectoryToHistory(dirPath string) error {
 }
 
 // SaveDirectorySessionCache saves the complete session state for a directory
-func (a *App) SaveDirectorySessionCache(dirPath string, selectedFiles []string, expandedFolders []string, currentFile string, sheetSelections map[string][]string) error {
+func SaveDirectorySessionCache(dirPath string, selectedFiles []string, expandedFolders []string, currentFile string, sheetSelections map[string][]string) error {
 	if dirPath == "" {
 		return fmt.Errorf("directory path cannot be empty")
 	}
@@ -167,7 +188,7 @@ func (a *App) SaveDirectorySessionCache(dirPath string, selectedFiles []string, 
 }
 
 // LoadDirectorySessionCache loads the complete session state for a directory
-func (a *App) LoadDirectorySessionCache(dirPath string) (*DirectorySessionCache, error) {
+func LoadDirectorySessionCache(dirPath string) (*DirectorySessionCache, error) {
 	if dirPath == "" {
 		return nil, fmt.Errorf("directory path cannot be empty")
 	}
@@ -236,7 +257,7 @@ func (a *App) LoadDirectorySessionCache(dirPath string) (*DirectorySessionCache,
 }
 
 // CleanupDirectorySessionCache removes old session cache files
-func (a *App) CleanupDirectorySessionCache(maxAge time.Duration) error {
+func CleanupDirectorySessionCache(maxAge time.Duration) error {
 	cacheDir := dataDir()
 	entries, err := os.ReadDir(cacheDir)
 	if err != nil {

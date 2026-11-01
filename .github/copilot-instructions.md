@@ -64,11 +64,11 @@ wails dev  # その後アプリ内でtestdataフォルダを選択
 ```
 
 ### VS Codeデバッグ
-- `Debug PDF Preview Go (Source)` を使用（自動的に./testが指定される）
+- `Debug PDF Preview Go (Source)` を使用（自動的に./internal/convert/testdataが指定される）
 - カスタムディレクトリテスト用に `Debug PDF Preview Go (Custom Dir)` も利用可能
 
 ### テストデータ場所
-- **メインテストディレクトリ**: `./test/testdata/`
+- **メインテストディレクトリ**: `./internal/convert/testdata/`
 - **含まれるファイル**: testdata1.xlsx, testdata2.xlsx, testdata3.docx
 
 ---

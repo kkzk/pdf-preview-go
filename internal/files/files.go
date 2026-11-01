@@ -1,4 +1,5 @@
-package main
+// Package files lists and opens the files the app works with.
+package files
 
 import (
 	"fmt"
@@ -6,13 +7,25 @@ import (
 	"path/filepath"
 	"strings"
 
+	"pdf-preview-go/internal/convert"
+
 	"golang.org/x/sys/windows"
 )
 
-// GetDirectoryContents returns the folders and supported files directly in a
+// FileInfo represents file information
+type FileInfo struct {
+	Name     string     `json:"name"`
+	Path     string     `json:"path"`
+	Size     int64      `json:"size"`
+	IsDir    bool       `json:"isDir"`
+	ModTime  string     `json:"modTime"`
+	Children []FileInfo `json:"children,omitempty"`
+}
+
+// ListDirectory returns the folders and supported files directly in a
 // directory. The tree is loaded one level at a time as folders are expanded,
 // so that large or cloud-backed (e.g. Box Drive) folders open quickly.
-func (a *App) GetDirectoryContents(dirPath string) ([]FileInfo, error) {
+func ListDirectory(dirPath string) ([]FileInfo, error) {
 	if dirPath == "" {
 		return nil, fmt.Errorf("directory path is empty")
 	}
@@ -29,9 +42,7 @@ func (a *App) GetDirectoryContents(dirPath string) ([]FileInfo, error) {
 			continue
 		}
 
-		// Office files and PDFs only, excluding Office lock files (~$Book.xlsx)
-		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if !entry.IsDir() && (!isOfficeFile(ext) || strings.HasPrefix(entry.Name(), "~$")) {
+		if !entry.IsDir() && !IsSupported(entry.Name()) {
 			continue
 		}
 
@@ -41,21 +52,17 @@ func (a *App) GetDirectoryContents(dirPath string) ([]FileInfo, error) {
 	return files, nil
 }
 
-// isOfficeFile checks if the file extension is an Office file
-func isOfficeFile(ext string) bool {
-	officeExts := []string{".xlsx", ".xls", ".xlsm", ".docx", ".doc", ".pdf"}
-	for _, officeExt := range officeExts {
-		if ext == officeExt {
-			return true
-		}
-	}
-	return false
+// IsSupported reports whether a file is shown and can be converted: Office
+// files and PDFs, excluding Office lock files (~$Book.xlsx)
+func IsSupported(path string) bool {
+	name := filepath.Base(path)
+	return convert.IsSupportedExt(strings.ToLower(filepath.Ext(name))) && !strings.HasPrefix(name, "~$")
 }
 
-// GetFilesInfo returns information about the given files, skipping files
+// Stat returns information about the given files, skipping files
 // that no longer exist. Used to restore selections without loading the
 // folders that contain them.
-func (a *App) GetFilesInfo(filePaths []string) []FileInfo {
+func Stat(filePaths []string) []FileInfo {
 	files := []FileInfo{}
 	for _, filePath := range filePaths {
 		info, err := os.Stat(filePath)
@@ -78,8 +85,8 @@ func newFileInfo(path string, info os.FileInfo) FileInfo {
 	}
 }
 
-// GetFileInfo returns basic file information
-func (a *App) GetFileInfo(filePath string) (map[string]interface{}, error) {
+// Details returns basic file information
+func Details(filePath string) (map[string]interface{}, error) {
 	if filePath == "" {
 		return nil, fmt.Errorf("file path is empty")
 	}
@@ -98,15 +105,15 @@ func (a *App) GetFileInfo(filePath string) (map[string]interface{}, error) {
 	}, nil
 }
 
-// OpenFile opens a file with its associated application (Excel, Word, a PDF
+// Open opens a file with its associated application (Excel, Word, a PDF
 // viewer, ...). Only existing files of the types shown in the tree are opened.
-func (a *App) OpenFile(filePath string) error {
+func Open(filePath string) error {
 	info, err := os.Stat(filePath)
 	if err != nil {
 		return fmt.Errorf("file not found: %v", err)
 	}
-	if info.IsDir() || !isOfficeFile(strings.ToLower(filepath.Ext(filePath))) {
-		return fmt.Errorf("%w: %s", ErrUnsupportedFileType, filepath.Ext(filePath))
+	if info.IsDir() || !convert.IsSupportedExt(strings.ToLower(filepath.Ext(filePath))) {
+		return fmt.Errorf("%w: %s", convert.ErrUnsupportedFileType, filepath.Ext(filePath))
 	}
 
 	verb, err := windows.UTF16PtrFromString("open")

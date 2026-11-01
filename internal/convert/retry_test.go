@@ -1,4 +1,4 @@
-package main
+package convert
 
 import (
 	"errors"
@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestRetryConversion(t *testing.T) {
+func TestRetry(t *testing.T) {
 	delays := []time.Duration{time.Millisecond, time.Millisecond}
 	errLocked := errors.New("file is locked")
 
@@ -27,7 +27,7 @@ func TestRetryConversion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			calls, retries := 0, 0
-			out, err := retryConversion(func() (string, error) {
+			out, err := Retry(func() (string, error) {
 				err := tt.errs[calls]
 				calls++
 				if err != nil {
@@ -54,13 +54,13 @@ func TestRetryConversion(t *testing.T) {
 	}
 }
 
-func TestRetryConversionStops(t *testing.T) {
+func TestRetryStops(t *testing.T) {
 	stop := make(chan struct{})
 	close(stop)
 
 	calls := 0
 	start := time.Now()
-	_, err := retryConversion(func() (string, error) {
+	_, err := Retry(func() (string, error) {
 		calls++
 		return "", errors.New("file is locked")
 	}, []time.Duration{time.Hour}, stop, func(int, error) {})

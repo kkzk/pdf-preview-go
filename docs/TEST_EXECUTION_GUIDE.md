@@ -32,7 +32,7 @@ wails dev
 
 #### VS Code デバッグ実行
 1. `Debug PDF Preview Go (Source)` 設定を使用
-2. 自動的に `./test` ディレクトリが指定される
+2. 自動的に `./internal/convert/testdata` ディレクトリが指定される
 3. カスタムディレクトリをテストする場合は `Debug PDF Preview Go (Custom Dir)` を使用
 
 ### テストデータ

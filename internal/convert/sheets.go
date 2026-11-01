@@ -1,4 +1,4 @@
-package main
+package convert
 
 import (
 	"archive/zip"
@@ -11,6 +11,13 @@ import (
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
 )
+
+// ExcelSheetInfo represents Excel sheet information
+type ExcelSheetInfo struct {
+	Name    string `json:"name"`
+	Visible bool   `json:"visible"`
+	Index   int    `json:"index"`
+}
 
 // GetExcelSheetsInfo returns information about sheets in an Excel file.
 // .xlsx/.xlsm files are read directly; .xls files are read via Excel.

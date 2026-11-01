@@ -78,7 +78,7 @@ jobs:
 
     # --- Go品質チェック / embed 指定があるためビルド後に実施する ---
     - name: Run go vet
-      run: go vet .
+      run: go vet ./...
 
     # Office (Excel/Word) is not installed on the runner, so Office tests are skipped
     - name: Run go test

@@ -4,7 +4,7 @@
 このリポジトリは、Go（Wails）とSvelte/ViteによるデスクトップPDFプレビューアプリです。GoバックエンドとSvelteフロントエンドが密接に連携し、クロスプラットフォームで動作します。
 
 ## アーキテクチャ
-- **Go (Wails) バックエンド**: `main.go`, `app.go` でアプリのエントリーポイントとロジックを管理。`wails.Run` でSvelteビルド成果物を埋め込み、Goメソッドをフロントエンドに公開。
+- **Go (Wails) バックエンド**: ルートの `main` パッケージがエントリーポイントと、フロントエンドに公開する `App` を持つ。`wails.Run` でSvelteビルド成果物を埋め込み、`App` のメソッドをフロントエンドに公開。処理の本体は `internal/` 配下のパッケージに分かれている（下記「ファイル構成」参照）。
 - **Svelte + Vite フロントエンド**: `frontend/` ディレクトリ配下。`src/App.svelte` でUI、`wailsjs/go/main/App.js` でGoメソッド呼び出し。`vite`で開発・ビルド。
 - **ビルド設定**: `wails.json` でビルド・開発コマンドや出力先を管理。`build/` ディレクトリにOSごとのビルド成果物やインストーラ設定。
 
@@ -59,8 +59,28 @@ VS Codeでのデバッグが設定済みです：
 
 ## ファイル構成
 
+### Goバックエンド
+```
+main.go          # エントリーポイント（frontend/dist を埋め込むためルートに置く）
+app.go           # App 構造体と起動・終了処理
+bindings.go      # internal パッケージに委譲するだけの公開メソッド
+conversion.go    # 変換・結合と自動再生成
+pdf_manager.go   # 生成したPDFの保存と未保存状態
+dialogs.go       # ダイアログ・ウィンドウタイトル
+startup.go       # コマンドライン引数の解釈
+internal/
+├── appdata/     # ディレクトリ履歴・セッションの保存、データ/キャッシュの場所
+├── contextmenu/ # エクスプローラーの右クリックメニュー登録
+├── convert/     # Office→PDF変換（COM）、PDF結合、シート一覧
+│   └── testdata/  # テスト用のExcel/Wordファイル（手動確認にも使う）
+├── files/       # ファイル一覧・ファイルを開く
+├── pdfserver/   # 変換したPDFをフロントエンドへ配信
+└── watch/       # ファイル変更の検知
+```
+- フロントエンドに公開するメソッドは `App` に置く（`frontend/wailsjs/go/main/App.js` が生成される）。ロジックは `internal/` に置き、`App` からはそれを呼ぶだけにする
+
 ### 参考ファイル
-- `main.go`, `app.go`: Goアプリのエントリーポイントとロジック
+- `main.go`, `app.go`: Goアプリのエントリーポイントと `App`
 - `frontend/src/App.svelte`: UIとGoメソッド呼び出し例
 - `frontend/wailsjs/go/main/App.js`: GoメソッドのJSラッパー
 - `wails.json`: ビルド・開発コマンド設定

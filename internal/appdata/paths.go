@@ -1,4 +1,6 @@
-package main
+// Package appdata stores the data the app keeps between runs: the directory
+// history and per-directory sessions, and the location of the PDF cache.
+package appdata
 
 import (
 	"crypto/md5"
@@ -12,9 +14,9 @@ import (
 
 const appName = "pdf-preview-go"
 
-// pdfCacheDir returns the directory for converted PDFs. They can be
+// PDFCacheDir returns the directory for converted PDFs. They can be
 // regenerated at any time, so the temp directory is used.
-func pdfCacheDir() string {
+func PDFCacheDir() string {
 	return filepath.Join(os.TempDir(), appName+"-cache")
 }
 
@@ -23,7 +25,7 @@ func pdfCacheDir() string {
 func dataDir() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
-		return pdfCacheDir()
+		return PDFCacheDir()
 	}
 	return filepath.Join(dir, appName)
 }
@@ -49,12 +51,12 @@ func directoryHash(dirPath string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-// migrateLegacyData moves the directory history and sessions, which were
+// MigrateLegacyData moves the directory history and sessions, which were
 // stored in the PDF cache directory by earlier versions, to dataDir. Files
 // already present in dataDir are kept. Legacy sheet selection files, whose
 // contents are also stored in sessions, are removed.
-func migrateLegacyData() {
-	oldDir := pdfCacheDir()
+func MigrateLegacyData() {
+	oldDir := PDFCacheDir()
 	newDir := dataDir()
 	if oldDir == newDir {
 		return
