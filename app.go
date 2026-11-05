@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"os"
 	"sync"
 	"time"
 
@@ -33,18 +32,14 @@ type App struct {
 	lastConvertedFiles  []string
 	lastConvertedSheets map[string][]string
 	currentPdfPath      string // Current PDF file path in the cache
-	savedPdfPath        string // Last saved PDF path
 	hasUnsavedChanges   bool   // Whether there are unsaved changes
 }
 
 // NewApp creates the app. initialFile, if not empty, is selected in initialDir.
 func NewApp(initialDir, initialFile string) *App {
-	// Create cache directory
-	cacheDir := appdata.PDFCacheDir()
-	os.MkdirAll(cacheDir, 0755)
-
 	app := &App{
-		converter:           convert.NewOfficeConverter(cacheDir),
+		// The converter creates the cache directory when it converts
+		converter:           convert.NewOfficeConverter(appdata.PDFCacheDir()),
 		initialDir:          initialDir,
 		initialFile:         initialFile,
 		lastConvertedFiles:  []string{},

@@ -69,7 +69,7 @@ pdf_manager.go   # 生成したPDFの保存と未保存状態
 dialogs.go       # ダイアログ・ウィンドウタイトル
 startup.go       # コマンドライン引数の解釈
 internal/
-├── appdata/     # ディレクトリ履歴・セッションの保存、データ/キャッシュの場所
+├── appdata/     # セッションの保存、データ/キャッシュの場所
 ├── contextmenu/ # エクスプローラーの右クリックメニュー登録
 ├── convert/     # Office→PDF変換（COM）、PDF結合、シート一覧
 │   └── testdata/  # テスト用のExcel/Wordファイル（手動確認にも使う）

@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 
@@ -17,12 +16,6 @@ var ErrUserCancelled = errors.New("user_cancelled")
 
 // GetInitialDirectory returns the initial directory set via command line
 func (a *App) GetInitialDirectory() string {
-	if a.initialDir != "" {
-		// Add to directory history when accessed
-		if err := a.AddDirectoryToHistory(a.initialDir); err != nil {
-			log.Printf("Warning: failed to add directory to history: %v", err)
-		}
-	}
 	return a.initialDir
 }
 
@@ -32,53 +25,18 @@ func (a *App) GetInitialFile() string {
 	return a.initialFile
 }
 
-// OpenFileDialog opens a file dialog to select PDF files
-func (a *App) OpenFileDialog() (string, error) {
-	file, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "PDFファイルを選択",
-		Filters: []runtime.FileFilter{
-			{
-				DisplayName: "PDFファイル (*.pdf)",
-				Pattern:     "*.pdf",
-			},
-		},
-	})
-	return file, err
-}
-
-// OpenDirectoryDialog opens a directory selection dialog
-func (a *App) OpenDirectoryDialog() (string, error) {
-	dir, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "フォルダを選択",
-	})
-	return dir, err
-}
-
-// ChangeWorkingDirectory changes the current working directory and emits event
+// ChangeWorkingDirectory asks for a new working directory and notifies the
+// frontend, which loads it and updates the window title
 func (a *App) ChangeWorkingDirectory() (string, error) {
 	dir, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "作業フォルダを選択",
 	})
-	if err != nil {
+	if err != nil || dir == "" {
 		return "", err
 	}
-	if dir != "" {
-		// Update initial directory
-		a.initialDir = dir
-
-		// Add to directory history
-		if err := a.AddDirectoryToHistory(dir); err != nil {
-			log.Printf("Warning: failed to add directory to history: %v", err)
-		}
-
-		// Update window title with new directory
-		runtime.WindowSetTitle(a.ctx, fmt.Sprintf("PDF Preview - %s", filepath.Base(dir)))
-
-		// Emit event to notify frontend
-		runtime.EventsEmit(a.ctx, "directory-changed", dir)
-		return dir, nil
-	}
-	return "", nil
+	a.initialDir = dir
+	runtime.EventsEmit(a.ctx, "directory-changed", dir)
+	return dir, nil
 }
 
 // SetWindowTitle updates the window title with current directory
@@ -100,8 +58,7 @@ func (a *App) ShowSaveDialog() error {
 		return fmt.Errorf("no PDF to save")
 	}
 
-	// Get default save path
-	defaultPath := a.GetDefaultSavePath()
+	defaultPath := a.defaultSavePath()
 	if defaultPath == "" {
 		return fmt.Errorf("unable to determine default save path")
 	}
@@ -129,13 +86,9 @@ func (a *App) ShowSaveDialog() error {
 		return ErrUserCancelled
 	}
 
-	// Save the PDF
-	err = a.SavePdfAs(filePath)
-	if err != nil {
+	if err := a.savePdfAs(filePath); err != nil {
 		return fmt.Errorf("failed to save PDF: %v", err)
 	}
-
-	// Successfully saved
 	return nil
 }
 

@@ -85,26 +85,6 @@ func newFileInfo(path string, info os.FileInfo) FileInfo {
 	}
 }
 
-// Details returns basic file information
-func Details(filePath string) (map[string]interface{}, error) {
-	if filePath == "" {
-		return nil, fmt.Errorf("file path is empty")
-	}
-
-	info, err := os.Stat(filePath)
-	if err != nil {
-		return nil, err
-	}
-
-	return map[string]interface{}{
-		"name":    info.Name(),
-		"size":    info.Size(),
-		"path":    filePath,
-		"dir":     filepath.Dir(filePath),
-		"modTime": info.ModTime(),
-	}, nil
-}
-
 // Open opens a file with its associated application (Excel, Word, a PDF
 // viewer, ...). Only existing files of the types shown in the tree are opened.
 func Open(filePath string) error {

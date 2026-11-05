@@ -99,34 +99,23 @@ func readSheetsWithExcel(filePath string) ([]ExcelSheetInfo, error) {
 	var sheets []ExcelSheetInfo
 	err := withCOM(func() error {
 		return withExcelWorkbook(filePath, func(wb *ole.IDispatch) error {
-			sheetsVar, err := oleutil.GetProperty(wb, "Sheets")
+			wbSheets, release, err := workbookSheets(wb)
 			if err != nil {
-				return fmt.Errorf("failed to get sheets: %v", err)
+				return err
 			}
-			sheetsDisp := sheetsVar.ToIDispatch()
-			defer sheetsDisp.Release()
+			defer release()
 
-			count := collectionCount(sheetsDisp)
-			if count < 0 {
-				return fmt.Errorf("failed to get sheet count")
-			}
-			for i := 1; i <= count; i++ {
-				sheetVar, err := oleutil.GetProperty(sheetsDisp, "Item", i)
-				if err != nil {
-					return fmt.Errorf("failed to get sheet %d: %v", i, err)
-				}
-				sheet := sheetVar.ToIDispatch()
+			for i, sheet := range wbSheets {
 				nameVar, nameErr := oleutil.GetProperty(sheet, "Name")
 				visibleVar, visibleErr := oleutil.GetProperty(sheet, "Visible")
-				sheet.Release()
 				if nameErr != nil || visibleErr != nil {
-					return fmt.Errorf("failed to get properties of sheet %d", i)
+					return fmt.Errorf("failed to get properties of sheet %d", i+1)
 				}
 				visibility, _ := visibleVar.Value().(int32) // XlSheetVisibility
 				sheets = append(sheets, ExcelSheetInfo{
 					Name:    nameVar.ToString(),
 					Visible: visibility == xlSheetVisible,
-					Index:   i - 1,
+					Index:   i,
 				})
 			}
 			return nil

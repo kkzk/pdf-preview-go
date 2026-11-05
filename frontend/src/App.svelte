@@ -3,7 +3,6 @@
   import {
     ConvertToPDF,
     GetAutoUpdateEnabled,
-    GetDefaultSavePath,
     GetDirectoryContents,
     GetExcelSheets,
     GetFilesInfo,
@@ -42,7 +41,6 @@
   let isConverting = false
   let autoUpdateEnabled = true
   let hasUnsavedChanges = false
-  let defaultSavePath = ''
 
   // UI state
   let leftPanelWidth = 300
@@ -56,8 +54,7 @@
 
   // Left panel section heights (percentages)
   let fileTreeHeight = 35
-  let selectedFilesHeight = 20 // the sheet list gets the rest
-  // sheetsHeight は削除 - CSS flexで自動調整
+  let selectedFilesHeight = 20 // the sheet list gets the rest (CSS flex)
 
   // Resize states
   let isResizingLeftPanel = false
@@ -103,9 +100,7 @@
     // Listen for directory change events from menu
     EventsOn('directory-changed', async newDir => {
       // Save current session before changing directory
-      if (rootDirectory) {
-        await saveCurrentDirectorySession()
-      }
+      await saveCurrentDirectorySession()
 
       rootDirectory = newDir
       expandedFolders.clear()
@@ -153,24 +148,15 @@
       addLog(`警告: ${data.message}`)
     })
 
-    // Listen for conversion progress events
-    EventsOn('conversion:progress', async status => {
-      if (status.status === 'completed' && status.outputPath) {
-        pdfUrl = status.outputPath
-        addLog(`PDFが更新されました`)
-        // Update save status after PDF generation
-        await updateSaveStatus()
-      }
+    // A PDF has been generated, by convertToPDF or by auto-update
+    EventsOn('pdf:updated', async url => {
+      pdfUrl = url
+      addLog(`PDFが更新されました`)
+      await updateSaveStatus()
     })
 
     // Auto-save session every 30 seconds
-    sessionSaveInterval = setInterval(() => {
-      if (rootDirectory) {
-        saveCurrentDirectorySession().catch(error => {
-          console.warn(`自動セッション保存エラー: ${error}`)
-        })
-      }
-    }, 30000) // 30 seconds
+    sessionSaveInterval = setInterval(saveCurrentDirectorySession, 30000)
   })
 
   onDestroy(() => {
@@ -186,14 +172,10 @@
     EventsOff('file-changed')
     EventsOff('conversion:error')
     EventsOff('conversion:warning')
-    EventsOff('conversion:progress')
+    EventsOff('pdf:updated')
 
     // Save session before component destroys
-    if (rootDirectory) {
-      saveCurrentDirectorySession().catch(error => {
-        console.warn(`終了時セッション保存エラー: ${error}`)
-      })
-    }
+    saveCurrentDirectorySession()
   })
 
   async function selectInitialFile() {
@@ -280,10 +262,6 @@
     debouncedSaveSession()
   }
 
-  function isFolderExpanded(folderPath) {
-    return expandedFolders.has(folderPath)
-  }
-
   function handleToggleFolder(event) {
     toggleFolder(event.detail)
   }
@@ -328,10 +306,6 @@
 
     // Debounced session save
     debouncedSaveSession()
-  }
-
-  function isFileSelected(file) {
-    return selectedFiles.some(f => f.path === file.path)
   }
 
   async function loadExcelSheets(file) {
@@ -519,14 +493,6 @@
     toggleSheetSelection(event.detail)
   }
 
-  function handleConvertPDF() {
-    convertToPDF()
-  }
-
-  function handleToggleAutoUpdate() {
-    toggleAutoUpdate()
-  }
-
   async function convertToPDF() {
     if (selectedFiles.length === 0) {
       addLog('変換するファイルが選択されていません')
@@ -554,12 +520,8 @@
         }
       }
 
-      const result = await ConvertToPDF(filePaths, validSheetSelections)
-      pdfUrl = result
-      addLog(`PDF変換が完了しました: ${result}`)
-
-      // Update save status after conversion
-      await updateSaveStatus()
+      // The PDF is shown by the pdf:updated event
+      await ConvertToPDF(filePaths, validSheetSelections)
     } catch (error) {
       addLog(`PDF変換エラー: ${error}`)
     } finally {
@@ -582,18 +544,12 @@
       await updateSaveStatus()
       addLog('PDFファイルを保存しました')
     } catch (error) {
-      // Handle different types of errors
       const errorStr = error ? error.toString() : ''
-
-      if (errorStr.includes('user_cancelled')) {
+      if (!error || errorStr.includes('cancel')) {
         addLog('保存がキャンセルされました')
-      } else if (errorStr.includes('cancelled') || errorStr.includes('cancel')) {
-        addLog('保存がキャンセルされました')
-      } else if (error) {
+      } else {
         addLog(`保存エラー: ${errorStr}`)
         console.error('Save error:', error)
-      } else {
-        addLog('保存がキャンセルされました')
       }
 
       // Update status even after error
@@ -604,7 +560,6 @@
   async function updateSaveStatus() {
     try {
       hasUnsavedChanges = await HasUnsavedChanges()
-      defaultSavePath = await GetDefaultSavePath()
     } catch (error) {
       console.error('Failed to update save status:', error)
     }
@@ -732,13 +687,7 @@
       clearTimeout(saveSessionTimeout)
     }
 
-    saveSessionTimeout = setTimeout(() => {
-      if (rootDirectory) {
-        saveCurrentDirectorySession().catch(error => {
-          console.warn(`遅延セッション保存エラー: ${error}`)
-        })
-      }
-    }, 2000) // 2 seconds debounce
+    saveSessionTimeout = setTimeout(saveCurrentDirectorySession, 2000) // 2 seconds debounce
   }
 
   function addLog(message) {
@@ -757,12 +706,6 @@
       // Revert on error
       autoUpdateEnabled = !autoUpdateEnabled
     }
-  }
-
-  function formatFileSize(bytes) {
-    if (bytes < 1024) return bytes + ' B'
-    if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB'
-    return Math.round(bytes / (1024 * 1024)) + ' MB'
   }
 
   // Resize handlers
@@ -809,11 +752,11 @@
       const newHeight = Math.max(20, Math.min(60, (relativeY / panelHeight) * 100))
 
       const remaining = 100 - newHeight
-      const ratio = selectedFilesHeight / (selectedFilesHeight + 35) // sheetsHeight基準値を35に固定
+      // Keep the selected files' share, taking 35 as the sheet list's height
+      const ratio = selectedFilesHeight / (selectedFilesHeight + 35)
 
       fileTreeHeight = newHeight
       selectedFilesHeight = remaining * ratio
-      // sheetsHeight は自動調整されるため削除
     }
 
     if (isResizingSelectedFiles) {
@@ -830,7 +773,6 @@
 
       const totalRemaining = 100 - fileTreeHeight
       selectedFilesHeight = (newSelectedHeight / 100) * totalRemaining
-      // sheetsHeight は自動調整されるため削除
     }
   }
 
@@ -913,7 +855,6 @@
       <div class="resize-handle horizontal" on:mousedown={startResizeSelectedFiles}></div>
 
       <!-- Excel Sheets -->
-      <!-- Excel Sheets -->
       <div class="panel-section sheets-section">
         <SheetsPanel
           {currentFile}
@@ -923,8 +864,8 @@
           {isConverting}
           {autoUpdateEnabled}
           on:toggle-sheet={handleToggleSheet}
-          on:convert-pdf={handleConvertPDF}
-          on:toggle-auto-update={handleToggleAutoUpdate}
+          on:convert-pdf={convertToPDF}
+          on:toggle-auto-update={toggleAutoUpdate}
         />
       </div>
     </div>

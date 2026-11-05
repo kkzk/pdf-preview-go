@@ -1,8 +1,6 @@
 package main
 
 import (
-	"time"
-
 	"pdf-preview-go/internal/appdata"
 	"pdf-preview-go/internal/contextmenu"
 	"pdf-preview-go/internal/convert"
@@ -23,11 +21,6 @@ func (a *App) GetFilesInfo(filePaths []string) []files.FileInfo {
 	return files.Stat(filePaths)
 }
 
-// GetFileInfo returns basic file information
-func (a *App) GetFileInfo(filePath string) (map[string]interface{}, error) {
-	return files.Details(filePath)
-}
-
 // OpenFile opens a supported file with its associated application
 func (a *App) OpenFile(filePath string) error {
 	return files.Open(filePath)
@@ -36,16 +29,6 @@ func (a *App) OpenFile(filePath string) error {
 // GetExcelSheets returns sheet information for an Excel file
 func (a *App) GetExcelSheets(filePath string) ([]convert.ExcelSheetInfo, error) {
 	return convert.GetExcelSheetsInfo(filePath)
-}
-
-// GetDirectoryHistory returns the list of recently used directories
-func (a *App) GetDirectoryHistory() ([]appdata.DirectoryHistory, error) {
-	return appdata.LoadDirectoryHistory()
-}
-
-// AddDirectoryToHistory adds a directory to the usage history
-func (a *App) AddDirectoryToHistory(dirPath string) error {
-	return appdata.AddDirectoryToHistory(dirPath)
 }
 
 // SaveDirectorySessionCache saves the complete session state for a directory
@@ -57,16 +40,6 @@ func (a *App) SaveDirectorySessionCache(dirPath string, selectedFiles []string, 
 // or nil if there is none
 func (a *App) LoadDirectorySessionCache(dirPath string) (*appdata.DirectorySessionCache, error) {
 	return appdata.LoadDirectorySessionCache(dirPath)
-}
-
-// CleanupDirectorySessionCache removes old session cache files
-func (a *App) CleanupDirectorySessionCache(maxAge time.Duration) error {
-	return appdata.CleanupDirectorySessionCache(maxAge)
-}
-
-// StartWatchingDirectory starts watching a directory for file changes
-func (a *App) StartWatchingDirectory(dirPath string) error {
-	return a.watcher.WatchDir(dirPath)
 }
 
 // SetAutoUpdateEnabled enables or disables automatic PDF updates

@@ -89,7 +89,7 @@ func (c *OfficeConverter) ConvertToPDF(srcPath string, selectedSheets []string) 
 	switch ext {
 	case ".pdf":
 		// Handle PDF files (just copy)
-		err = copyFile(srcPath, outputPath)
+		err = CopyFile(srcPath, outputPath)
 	case ".xlsx", ".xls", ".xlsm":
 		err = withCOM(func() error {
 			return c.convertExcelToPDF(srcPath, outputPath, selectedSheets)
@@ -204,6 +204,38 @@ func withExcelWorkbook(path string, fn func(wb *ole.IDispatch) error) error {
 	return fn(workbook.ToIDispatch())
 }
 
+// workbookSheets returns the sheets of a workbook in order, along with a
+// function that releases them
+func workbookSheets(wb *ole.IDispatch) ([]*ole.IDispatch, func(), error) {
+	sheetsVar, err := oleutil.GetProperty(wb, "Sheets")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get sheets: %v", err)
+	}
+	collection := sheetsVar.ToIDispatch()
+	defer collection.Release()
+
+	var sheets []*ole.IDispatch
+	release := func() {
+		for _, sheet := range sheets {
+			sheet.Release()
+		}
+	}
+
+	count := collectionCount(collection)
+	if count < 0 {
+		return nil, nil, fmt.Errorf("failed to get sheet count")
+	}
+	for i := 1; i <= count; i++ {
+		sheetVar, err := oleutil.GetProperty(collection, "Item", i)
+		if err != nil {
+			release()
+			return nil, nil, fmt.Errorf("failed to get sheet %d: %v", i, err)
+		}
+		sheets = append(sheets, sheetVar.ToIDispatch())
+	}
+	return sheets, release, nil
+}
+
 // Excel XlSheetVisibility values
 const (
 	xlSheetVisible = -1
@@ -215,44 +247,27 @@ const (
 // visible sheet. Selected names missing from the workbook are skipped, but it
 // is an error if none of them exist.
 func showOnlySelectedSheets(wb *ole.IDispatch, selectedSheets []string) error {
-	sheetsVar, err := oleutil.GetProperty(wb, "Sheets")
-	if err != nil {
-		return fmt.Errorf("failed to get sheets: %v", err)
-	}
-	sheets := sheetsVar.ToIDispatch()
-	defer sheets.Release()
-
-	count := collectionCount(sheets)
-	if count < 0 {
-		return fmt.Errorf("failed to get sheet count")
-	}
-
 	selected := make(map[string]bool, len(selectedSheets))
 	for _, name := range selectedSheets {
 		selected[name] = true
 	}
+
+	sheets, release, err := workbookSheets(wb)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	// Collect sheets and their names
 	type namedSheet struct {
 		name  string
 		sheet *ole.IDispatch
 	}
-	var all []namedSheet
-	defer func() {
-		for _, s := range all {
-			s.sheet.Release()
-		}
-	}()
-	for i := 1; i <= count; i++ {
-		sheetVar, err := oleutil.GetProperty(sheets, "Item", i)
-		if err != nil {
-			return fmt.Errorf("failed to get sheet %d: %v", i, err)
-		}
-		sheet := sheetVar.ToIDispatch()
+	all := make([]namedSheet, 0, len(sheets))
+	for i, sheet := range sheets {
 		nameVar, err := oleutil.GetProperty(sheet, "Name")
 		if err != nil {
-			sheet.Release()
-			return fmt.Errorf("failed to get name of sheet %d: %v", i, err)
+			return fmt.Errorf("failed to get name of sheet %d: %v", i+1, err)
 		}
 		all = append(all, namedSheet{name: nameVar.ToString(), sheet: sheet})
 	}
@@ -397,35 +412,16 @@ func collectionCount(collection *ole.IDispatch) int {
 	return int(v.Val)
 }
 
-// MergePDFs combines multiple PDF files into one using pdfcpu library
+// MergePDFs combines PDF files into one using pdfcpu
 func MergePDFs(inputPaths []string, outputPath string) error {
 	if len(inputPaths) == 0 {
 		return fmt.Errorf("no input PDFs provided")
 	}
-
-	// If only one file, just copy it
-	if len(inputPaths) == 1 {
-		return copyFile(inputPaths[0], outputPath)
-	}
-
-	// Validate all input files exist
-	for _, inputPath := range inputPaths {
-		if _, err := os.Stat(inputPath); os.IsNotExist(err) {
-			return fmt.Errorf("input file does not exist: %s", inputPath)
-		}
-	}
-
-	// Use pdfcpu to merge PDFs
-	err := api.MergeCreateFile(inputPaths, outputPath, false, nil)
-	if err != nil {
-		return fmt.Errorf("failed to merge PDFs: %v", err)
-	}
-
-	return nil
+	return api.MergeCreateFile(inputPaths, outputPath, false, nil)
 }
 
-// copyFile copies a file from src to dst
-func copyFile(src, dst string) error {
+// CopyFile copies the contents of src to dst, replacing dst
+func CopyFile(src, dst string) error {
 	sourceFile, err := os.Open(src)
 	if err != nil {
 		return err
@@ -436,20 +432,11 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer destFile.Close()
-
-	_, err = io.Copy(destFile, sourceFile)
-	if err != nil {
+	if _, err := io.Copy(destFile, sourceFile); err != nil {
+		destFile.Close()
 		return err
 	}
-
-	// Copy file info
-	sourceInfo, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-
-	return os.Chmod(dst, sourceInfo.Mode())
+	return destFile.Close()
 }
 
 // CleanupCache removes cached PDFs that have not been used for maxAge

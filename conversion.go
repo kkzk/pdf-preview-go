@@ -18,15 +18,6 @@ import (
 // mergedFilePrefix is the file name prefix of merged PDFs in the cache directory
 const mergedFilePrefix = "merged_"
 
-// ConversionStatus represents the status of a conversion operation
-type ConversionStatus struct {
-	Status       string `json:"status"`       // "running", "completed", "error"
-	CurrentFile  string `json:"currentFile"`  // Currently processing file
-	Progress     int    `json:"progress"`     // Progress percentage
-	OutputPath   string `json:"outputPath"`   // Final output PDF path
-	ErrorMessage string `json:"errorMessage"` // Error message if status is "error"
-}
-
 // conversionRetryDelays are the waits before retrying a failed conversion
 // (see convert.Retry)
 var conversionRetryDelays = []time.Duration{2 * time.Second, 4 * time.Second}
@@ -50,15 +41,8 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 	var failures []string
 
 	// Convert each file to PDF
-	for i, filePath := range filePaths {
+	for _, filePath := range filePaths {
 		fileName := filepath.Base(filePath)
-
-		// Emit progress event
-		runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
-			Status:      "running",
-			CurrentFile: fileName,
-			Progress:    int((float64(i) / float64(len(filePaths))) * 100),
-		})
 
 		outputPath, err := convert.Retry(func() (string, error) {
 			return a.converter.ConvertToPDF(filePath, sheetSelections[filePath])
@@ -85,12 +69,6 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 	// If only one file, use it directly; otherwise merge them using pdfcpu
 	pdfPath := convertedPDFs[0]
 	if len(convertedPDFs) > 1 {
-		runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
-			Status:      "running",
-			CurrentFile: "PDFファイルを結合中...",
-			Progress:    90,
-		})
-
 		// Generate merged PDF filename with timestamp
 		// (all PDFs are in the same cache directory)
 		mergedFileName := fmt.Sprintf("%s%s.pdf", mergedFilePrefix, time.Now().Format("20060102_150405.000"))
@@ -104,12 +82,6 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 	// Convert file path to URL with cache buster
 	pdfURL := pdfserver.URL(filepath.Base(pdfPath), time.Now().UnixNano())
 
-	runtime.EventsEmit(a.ctx, "conversion:progress", ConversionStatus{
-		Status:     "completed",
-		Progress:   100,
-		OutputPath: pdfURL,
-	})
-
 	a.mu.Lock()
 	previousPdfPath := a.currentPdfPath
 	// Save converted files and sheet selections for auto-update
@@ -119,6 +91,11 @@ func (a *App) ConvertToPDF(filePaths []string, sheetSelections map[string][]stri
 	a.currentPdfPath = pdfPath
 	a.hasUnsavedChanges = true
 	a.mu.Unlock()
+
+	// Show the PDF, both for conversions requested by the frontend and for
+	// auto-regeneration. Emitted after the state above has been updated, so
+	// that the frontend reads the new save status.
+	runtime.EventsEmit(a.ctx, "pdf:updated", pdfURL)
 	// Record file modification times for change detection
 	a.watcher.Track(filePaths, modTimes)
 
