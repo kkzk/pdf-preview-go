@@ -62,34 +62,3 @@ func TestDirectorySessionNotFound(t *testing.T) {
 		t.Errorf("got (%v, %v), want (nil, nil)", session, err)
 	}
 }
-
-func TestDirectoryHistory(t *testing.T) {
-	isolateDirs(t)
-	first, second := t.TempDir(), t.TempDir()
-	gone := filepath.Join(t.TempDir(), "gone")
-	os.Mkdir(gone, 0755)
-
-	for _, dir := range []string{first, gone, second, first} {
-		if err := AddDirectoryToHistory(dir); err != nil {
-			t.Fatal(err)
-		}
-		time.Sleep(10 * time.Millisecond) // distinct LastUsed
-	}
-	os.Remove(gone)
-
-	history, err := LoadDirectoryHistory()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var paths []string
-	for _, h := range history {
-		paths = append(paths, h.Path)
-	}
-	// Most recent first, without the removed directory
-	if want := []string{first, second}; !reflect.DeepEqual(paths, want) {
-		t.Fatalf("history = %v, want %v", paths, want)
-	}
-	if history[0].UsageCount != 2 {
-		t.Errorf("UsageCount = %d, want 2", history[0].UsageCount)
-	}
-}

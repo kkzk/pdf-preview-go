@@ -41,6 +41,7 @@ func TestMigrateLegacyData(t *testing.T) {
 		write(oldDir, name, "old")
 	}
 	write(newDir, "session_b.json", "new") // already migrated
+	write(newDir, "directory_history.json", "new")
 
 	MigrateLegacyData()
 
@@ -54,7 +55,7 @@ func TestMigrateLegacyData(t *testing.T) {
 	checks := []struct {
 		dir, name, want string
 	}{
-		{newDir, "directory_history.json", "old"},
+		{newDir, "directory_history.json", "<missing>"}, // no longer used, removed
 		{newDir, "session_a.json", "old"},
 		{newDir, "session_b.json", "new"}, // not overwritten
 		{oldDir, "directory_history.json", "<missing>"},

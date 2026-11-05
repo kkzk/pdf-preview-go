@@ -6,142 +6,18 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
 
-// DirectoryHistory represents history of directory usage
-type DirectoryHistory struct {
-	Path        string    `json:"path"`        // Directory path
-	DisplayName string    `json:"displayName"` // Display name (usually folder name)
-	LastUsed    time.Time `json:"lastUsed"`    // When directory was last accessed
-	UsageCount  int       `json:"usageCount"`  // How many times this directory was used
-}
-
 // DirectorySessionCache represents cached state for a specific directory
 type DirectorySessionCache struct {
 	DirectoryPath   string              `json:"directoryPath"`   // Directory path
-	DirectoryHash   string              `json:"directoryHash"`   // MD5 hash of directory path
-	LastUpdated     time.Time           `json:"lastUpdated"`     // When cache was last updated
 	SelectedFiles   []string            `json:"selectedFiles"`   // List of selected file paths
 	ExpandedFolders []string            `json:"expandedFolders"` // List of expanded folder paths
 	CurrentFile     string              `json:"currentFile"`     // Currently selected file
 	SheetSelections map[string][]string `json:"sheetSelections"` // File path -> selected sheets
 	ExpiryTime      time.Time           `json:"expiryTime"`      // When cache expires
-}
-
-// LoadDirectoryHistory returns the recently used directories that still exist,
-// most recent first
-func LoadDirectoryHistory() ([]DirectoryHistory, error) {
-	cacheFilePath := historyFilePath()
-
-	// Check if cache file exists
-	if _, err := os.Stat(cacheFilePath); os.IsNotExist(err) {
-		return []DirectoryHistory{}, nil
-	}
-
-	// Read cache file
-	data, err := os.ReadFile(cacheFilePath)
-	if err != nil {
-		return []DirectoryHistory{}, nil
-	}
-
-	// Parse JSON
-	var history []DirectoryHistory
-	if err := json.Unmarshal(data, &history); err != nil {
-		return []DirectoryHistory{}, nil
-	}
-
-	// Filter out directories that no longer exist and sort by last used
-	validHistory := []DirectoryHistory{}
-	for _, dir := range history {
-		if _, err := os.Stat(dir.Path); err == nil {
-			validHistory = append(validHistory, dir)
-		}
-	}
-
-	// Sort by last used time (most recent first)
-	sort.Slice(validHistory, func(i, j int) bool {
-		return validHistory[i].LastUsed.After(validHistory[j].LastUsed)
-	})
-
-	// Keep only the most recent 20 directories
-	if len(validHistory) > 20 {
-		validHistory = validHistory[:20]
-	}
-
-	return validHistory, nil
-}
-
-// AddDirectoryToHistory adds a directory to the usage history
-func AddDirectoryToHistory(dirPath string) error {
-	if dirPath == "" {
-		return fmt.Errorf("directory path cannot be empty")
-	}
-
-	// Normalize path
-	absPath, err := filepath.Abs(dirPath)
-	if err != nil {
-		absPath = dirPath
-	}
-
-	// Get current history
-	history, err := LoadDirectoryHistory()
-	if err != nil {
-		history = []DirectoryHistory{}
-	}
-
-	// Check if directory already exists in history
-	var existingDir *DirectoryHistory
-	for i := range history {
-		if history[i].Path == absPath {
-			existingDir = &history[i]
-			break
-		}
-	}
-
-	// Get display name (folder name)
-	displayName := filepath.Base(absPath)
-	if displayName == "." || displayName == "" {
-		displayName = absPath
-	}
-
-	if existingDir != nil {
-		// Update existing entry
-		existingDir.LastUsed = time.Now()
-		existingDir.UsageCount++
-		existingDir.DisplayName = displayName
-	} else {
-		// Add new entry
-		newEntry := DirectoryHistory{
-			Path:        absPath,
-			DisplayName: displayName,
-			LastUsed:    time.Now(),
-			UsageCount:  1,
-		}
-		history = append([]DirectoryHistory{newEntry}, history...)
-	}
-
-	// Keep only the most recent 20 directories
-	if len(history) > 20 {
-		history = history[:20]
-	}
-
-	// Save updated history
-	cacheFilePath := historyFilePath()
-	os.MkdirAll(filepath.Dir(cacheFilePath), 0755)
-
-	data, err := json.MarshalIndent(history, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal directory history: %v", err)
-	}
-
-	if err := os.WriteFile(cacheFilePath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write directory history: %v", err)
-	}
-
-	return nil
 }
 
 // SaveDirectorySessionCache saves the complete session state for a directory
@@ -150,23 +26,14 @@ func SaveDirectorySessionCache(dirPath string, selectedFiles []string, expandedF
 		return fmt.Errorf("directory path cannot be empty")
 	}
 
-	// Normalize path
-	absPath, err := filepath.Abs(dirPath)
-	if err != nil {
-		absPath = dirPath
-	}
-
-	dirHash := directoryHash(absPath)
+	absPath := absolutePath(dirPath)
 	cacheFilePath := sessionFilePath(absPath)
 
 	// Create cache directory if it doesn't exist
 	os.MkdirAll(filepath.Dir(cacheFilePath), 0755)
 
-	// Create cache structure
 	cache := DirectorySessionCache{
 		DirectoryPath:   absPath,
-		DirectoryHash:   dirHash,
-		LastUpdated:     time.Now(),
 		SelectedFiles:   selectedFiles,
 		ExpandedFolders: expandedFolders,
 		CurrentFile:     currentFile,
@@ -174,7 +41,6 @@ func SaveDirectorySessionCache(dirPath string, selectedFiles []string, expandedF
 		ExpiryTime:      time.Now().AddDate(0, 3, 0), // Expire after 3 months
 	}
 
-	// Write to JSON file
 	data, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal session cache: %v", err)
@@ -187,32 +53,23 @@ func SaveDirectorySessionCache(dirPath string, selectedFiles []string, expandedF
 	return nil
 }
 
-// LoadDirectorySessionCache loads the complete session state for a directory
+// LoadDirectorySessionCache loads the complete session state for a directory,
+// or nil if there is none
 func LoadDirectorySessionCache(dirPath string) (*DirectorySessionCache, error) {
 	if dirPath == "" {
 		return nil, fmt.Errorf("directory path cannot be empty")
 	}
 
-	// Normalize path
-	absPath, err := filepath.Abs(dirPath)
-	if err != nil {
-		absPath = dirPath
-	}
+	cacheFilePath := sessionFilePath(absolutePath(dirPath))
 
-	cacheFilePath := sessionFilePath(absPath)
-
-	// Check if cache file exists
-	if _, err := os.Stat(cacheFilePath); os.IsNotExist(err) {
-		return nil, nil // No cache found
-	}
-
-	// Read cache file
 	data, err := os.ReadFile(cacheFilePath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // No cache found
+		}
 		return nil, fmt.Errorf("failed to read session cache: %v", err)
 	}
 
-	// Parse JSON
 	var cache DirectorySessionCache
 	if err := json.Unmarshal(data, &cache); err != nil {
 		return nil, fmt.Errorf("failed to parse session cache: %v", err)
@@ -256,7 +113,8 @@ func LoadDirectorySessionCache(dirPath string) (*DirectorySessionCache, error) {
 	return &cache, nil
 }
 
-// CleanupDirectorySessionCache removes old session cache files
+// CleanupDirectorySessionCache removes session files that have not been saved
+// for maxAge. Expired sessions that remain are removed when they are loaded.
 func CleanupDirectorySessionCache(maxAge time.Duration) error {
 	cacheDir := dataDir()
 	entries, err := os.ReadDir(cacheDir)
@@ -271,42 +129,17 @@ func CleanupDirectorySessionCache(maxAge time.Duration) error {
 	cleaned := 0
 
 	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
 		// Only process session cache files
-		if !strings.HasPrefix(entry.Name(), "session_") || !strings.HasSuffix(entry.Name(), ".json") {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "session_") || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
 
-		filePath := filepath.Join(cacheDir, entry.Name())
-
-		// Check file modification time
 		info, err := entry.Info()
-		if err != nil {
+		if err != nil || !info.ModTime().Before(cutoff) {
 			continue
 		}
-
-		// Also check cache content for expiry
-		shouldRemove := info.ModTime().Before(cutoff)
-
-		if !shouldRemove {
-			// Check cache file content for expiry
-			if data, err := os.ReadFile(filePath); err == nil {
-				var cache DirectorySessionCache
-				if json.Unmarshal(data, &cache) == nil {
-					if time.Now().After(cache.ExpiryTime) {
-						shouldRemove = true
-					}
-				}
-			}
-		}
-
-		if shouldRemove {
-			if err := os.Remove(filePath); err == nil {
-				cleaned++
-			}
+		if err := os.Remove(filepath.Join(cacheDir, entry.Name())); err == nil {
+			cleaned++
 		}
 	}
 
@@ -315,6 +148,15 @@ func CleanupDirectorySessionCache(maxAge time.Duration) error {
 	}
 
 	return nil
+}
+
+// absolutePath returns the absolute form of path, or path itself if it cannot
+// be determined
+func absolutePath(path string) string {
+	if absPath, err := filepath.Abs(path); err == nil {
+		return absPath
+	}
+	return path
 }
 
 // existingFileSelections returns the sheet selections of files that still exist.
